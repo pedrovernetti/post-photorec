@@ -1,18 +1,42 @@
 #!/usr/bin/env python3
 
+# =============================================================================================
+#
+# This program is free software: you can redistribute it and/or modify it under the terms of
+# the GNU General Public License as published by the Free Software Foundation, either version
+# 3 of the License, or (at your option) any later version.
+# This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
+# without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+# See the GNU General Public License for more details.
+# This script must/should come together with a copy of the GNU General Public License. If not,
+# access <http://www.gnu.org/licenses/> to find and read it.
+#
+# Author: Pedro Vernetti G.
+# Name: Post-PhotoRec
+# Description: Tool to auto-organize files recovered by PhotoRec and similar tools.
+#
+# #  In order to have this script working (if it is currently not), run 'install.sh'. In case
+#    it is missing or does not work, follow these steps:
+# 1. install pip (Python package installer) using your package manager;   .
+# 2. with pip, install cchardet, lxml, pymediainfo, pillow, pypdf2,       .
+#    olefile and fonttools;                                               .
+# 3. Make sure this script has execution permission.                      .
+#
+# =============================================================================================
+
 import sys, os, re, mmap, codecs, json
 from unicodedata import category as ucategory, normalize as unormalize
 from zipfile import ZipFile as ZIPFile
 
-import cchardet #TODO deps
-from lxml import html, etree, objectify #TODO deps
-from pymediainfo import MediaInfo #TODO deps
-from PIL import Image #TODO deps
-from PyPDF2 import PdfFileReader as PDFFile #TODO deps
-from PyPDF2.generic import IndirectObject as PDFIndirectObject #TODO deps ^^^
-try: from olefile import OleFileIO as OLEFile  #TODO deps
-except: from OleFileIO_PL import OleFileIO as OLEFile  #TODO deps
-from fontTools import ttLib  #TODO deps
+import cchardet
+from lxml import html, etree, objectify
+from pymediainfo import MediaInfo
+from PIL import Image
+from PyPDF2 import PdfFileReader as PDFFile
+from PyPDF2.generic import IndirectObject as PDFIndirectObject
+try: from olefile import OleFileIO as OLEFile
+except: from OleFileIO_PL import OleFileIO as OLEFile
+from fontTools import ttLib
 
 
 
