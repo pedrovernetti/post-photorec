@@ -171,8 +171,6 @@ def videoFilename( parsedInfo, currentName ):
     path = currentName.rsplit(os.path.sep, 1)[0]
     return os.path.join(path, (final + r'.' + currentName.rsplit(r'.', 1)[-1]))
 
-
-
 def fontFilename( currentName ):
     if (re.match(r'^.*\.([ot]t[cf]|tte|dfont)$', currentName)):
         font = ttLib.TTFont(currentName)
@@ -197,8 +195,6 @@ def fontFilename( currentName ):
     path = currentName.rsplit(os.path.sep, 1)[0]
     name = _normalized(family + r' ' + name)
     return os.path.join(path, (name + r'.' + currentName.rsplit(r'.', 1)[-1]))
-
-
 
 def torrentFilename( currentName ):
     if (not os.path.isfile(currentName)): return currentName
@@ -486,11 +482,9 @@ files = buffer
 
 # NAMING IMAGE FILES
 
-imageFile = r'^.*\.(b[lm]p|d(cx|ds|ib)|eps|g(d|if)|imt?|jp([2e]|e?g)|m(ic|po|sp)|'
-imageFile = re.compile(imageFile + r'p(c[dx]|ng|pm|sd)|sgi|t(ga|iff?)|w(al|ebp|mf)|x[bp]m)$')
 buffer = []
 for i in range(0, len(files)):
-    if (imageFile.match(files[i])):
+    if (picture.match(files[i])):
         done += 1
         progress(done, initialTotal)
         try: image = Image.open(files[i], r'r')
