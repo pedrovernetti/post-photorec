@@ -24,7 +24,7 @@
 #
 # =============================================================================================
 
-import sys, os, re, mmap, codecs, json, filecmp
+import sys, os, re, mmap, codecs, json, gzip, filecmp
 from unicodedata import category as ucategory, normalize as unormalize
 from zipfile import ZipFile as ZIPFile
 
@@ -40,6 +40,8 @@ from fontTools import ttLib
 
 
 
+# VERBOSITY FUNCTIONS
+
 def progress( message, done, total ):
     progressLen = (len(str(total)) * 2) + 1
     p = str(done) + r'/' + str(total)
@@ -54,6 +56,8 @@ def _mute():
     except: _unmute()
 
 
+
+# TEXT NORMALIZATION FUNCTION
 
 _ucats = {r'Cc', r'Cf', r'Co', r'Cs'}
 _table = dict.fromkeys(i for i in range(sys.maxunicode) if (ucategory(chr(i)) in _ucats))
@@ -79,6 +83,8 @@ def _normalized( stringOrStrings ):
 
 
 
+# XML PARSING FUNCTION
+
 def _parsedXML( file ):
     try: parsedXML = etree.parse(file, etree.XMLParser(remove_blank_text=True, remove_comments=True))
     except: return None
@@ -89,6 +95,8 @@ def _parsedXML( file ):
     return parsedXML
 
 
+
+# CONTENT ANALYSIS FUNCTIONS
 
 def fileContains( filePath, what ):
     with open(filePath, r'rb', 0) as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as s:
@@ -117,6 +125,8 @@ def decodedFileContent( file ):
     return content
 
 
+
+# METADATA-TO-FILENAME FUNCTIONS
 
 def songFilename( parsedInfo, currentName ):
     if (parsedInfo.tracks[0].overall_bit_rate is not None):
@@ -217,6 +227,8 @@ def torrentFilename( currentName ):
 
 
 
+# SPECIAL FILE RENAMING FUNCTION
+
 def moveNotReplacing( file, toWhere ):
     try:
         newFilename = os.path.join(toWhere, os.path.split(file)[-1])
@@ -237,6 +249,8 @@ def moveNotReplacing( file, toWhere ):
                 return file
 
 
+
+# SPLIT FUNCTION
 
 def split( l, chunkMaxSize ):
     for i in range(0, len(l), chunkMaxSize):
@@ -269,8 +283,8 @@ sys.stdout.write(r'Listing files...')
 files = []
 for path, subdirs, items in os.walk(sys.argv[-1]):
     files += [os.path.join(path, name) for name in items]
-print('\r' + str(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
 initialTotal = len(files)
+print('\r' + str(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -330,8 +344,8 @@ progress(r'Processing files...', done, initialTotal)
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-exedllNamedFile = r'^f[0-9]{5,}_(.*)([._]([Dd][Ll][Ll]|[Ee][Xx][Ee]|[Dd]2[Ss]|[Zz][Ii][Pp]|'
-exedllNamedFile = re.compile(exedllNamedFile + '[Ss][Yy][Ss]|[Dd][Oo][Cc]|[Pp][Dd][Ff]))?$')
+exedllNamedFile = r'^f[0-9]{5,}_(.*)[._]([Dd][Ll][Ll]|[Ee][Xx][Ee]|[Dd]2[Ss]|[Zz][Ii][Pp]|'
+exedllNamedFile = re.compile(exedllNamedFile + '[Ss][Yy][Ss]|[Dd][Oo][Cc]|[Pp][Dd][Ff])$')
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
     if (exedllNamedFile.match(filename)):
@@ -727,6 +741,32 @@ for i in range(0, len(files)):
         if (title is not None): title = title.text
         else: continue
         newFilename = _normalized(title) + r'.' + files[i].rsplit(r'.', 1)[-1]
+        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
+        os.rename(files[i], newFilename)
+    else:
+        buffer.append(files[i])
+files = buffer
+
+
+
+# NAMING ARCHIVES AND COMPRESSED FILES
+
+buffer = []
+for i in range(0, len(files)):
+    if (files[i].endswith(r'.html.gz')):
+        done += 1
+        progress(r'Processing files...', done, initialTotal)
+        try: xml = html.fromstring(gzip.open(files[i], r'rb').read())
+        except: continue
+        title = xml.find(r'.//title')
+        if (title is None):
+            title = xml.find(r'.//meta[@name="title"]')
+            if (title is None): title = xml.find(r'.//meta[@property="og:title"]')
+            if (title is None): title = xml.find(r'.//meta[@name="parsely-title"]')
+            if (title is None): title = xml.find(r'.//name')
+        if (title is not None): title = title.text
+        else: continue
+        newFilename = _normalized(title) + r'.html.gz'
         newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
         os.rename(files[i], newFilename)
     else:
