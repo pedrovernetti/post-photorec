@@ -260,20 +260,20 @@ def split( l, chunkMaxSize ):
 
 # DEFINING FILENAME REGEXES
 
-font = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
-code = r'^.*\.([CcHh](\+\+|pp)|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
-code += r'go|a(sp|d[bs])|c([bq]?l|lj[sc]?|ob(ra)?|py|yp)|li?sp|t(cl|bc)|j(ava|j)|(m|[eh]r)l|l?hs|'
-code += r'[rv]b|vhdl?|exs?|dart|applescript|f(or|90)|boo|[jt]sx|va(la|pi)|GAMBAS|(lit)?coffee|'
-code = re.compile(code + 'fs([ix]|script)|jl|lua|mm|w?asm|hx(ml)?|g(v|roov)?y|w(l|at)|b(at|tm)|cmd)$')
-picture = r'^.*\.(a(n?i|png)|b([lm]p|pg)|d(c[rx]|ds|ib)|e(ps[fi]?|mf)|g(d|if)|i(mt?|co|cns)|flif|vsd'
-picture += r'j(p[2efx]|[np]g|peg|xr)|m(ic|po|sp|ng)|p(c[dx]|ng|[abgnp]m|s[db])|odg|c(in|r2|rw|ur)|'
-picture = re.compile(picture + r'[hw]dp|heic|s(gi|vgz?)|t(ga|iff?)|w(al|ebp|mf|bmp|pg)|x([bp]m|cf))$')
-ambigMedia = re.compile(r'^.*\.(asf|ogg|webm|rm(vb)?|riff|3g(p?[p2]|pp2))$')
-video = re.compile('^.*\.(avi|(fl|mq|vi|wm)v|m([4ko]v|p(4|e|e?g))|ogv|qt|rmvb)$')
-document = r'^.*\.((f?od|uo)[pst]|o(le|pf)|(xls|ppt|doc)x?|p(df|s|ps)|g(p[345x]?|tp)|tg|css|'
-document = re.compile(document + r'e(nc|pub)|[a-z]?html?|m(obi|d)|djvu?|chm|rtf|[tc]sv|dcx)$')
-audio = r'^.*\.(m(4[abp]|ka|p[+c123]|idi?)|w(ma|a?v)|flac|a(ac|c3|pe|u)|dts|oga|tta|gsm|'
-audio = re.compile(audio + r'ra|ofr|s(px|nd))$')
+fontFile = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
+codeFile = r'^.*\.([CcHh](\+\+|pp)|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
+codeFile += r'go|a(sp|d[bs])|c([bq]?l|lj[sc]?|ob(ra)?|py|yp)|li?sp|t(cl|bc)|j(ava|j)|(m|[eh]r)l|l?hs|'
+codeFile += r'[rv]b|vhdl?|exs?|dart|applescript|f(or|90)|boo|[jt]sx|va(la|pi)|GAMBAS|(lit)?coffee|'
+codeFile = re.compile(codeFile + 'fs([ix]|script)|jl|lua|mm|w?asm|hx(ml)?|g(v|roov)?y|w(l|at)|b(at|tm)|cmd)$')
+pictureFile = r'^.*\.(a(n?i|png)|b([lm]p|pg)|d(c[rx]|ds|ib)|e(ps[fi]?|mf)|g(d|if)|i(mt?|co|cns)|flif|vsd'
+pictureFile += r'j(p[2efx]|[np]g|peg|xr)|m(ic|po|sp|ng)|p(c[dx]|ng|[abgnp]m|s[db])|odg|c(in|r2|rw|ur)|'
+pictureFile = re.compile(pictureFile + r'[hw]dp|heic|s(gi|vgz?)|t(ga|iff?)|w(al|ebp|mf|bmp|pg)|x([bp]m|cf))$')
+ambigMediaFile = re.compile(r'^.*\.(asf|ogg|webm|rm(vb)?|riff|3g(p?[p2]|pp2))$')
+videoFile = re.compile('^.*\.(avi|(fl|mq|vi|wm)v|m([4ko]v|p(4|e|e?g))|ogv|qt|rmvb)$')
+documentFile = r'^.*\.((f?od|uo)[pst]|o(le|pf)|(xls|ppt|doc)x?|p(df|s|ps)|g(p[345x]?|tp)|tg|css|'
+documentFile = re.compile(documentFile + r'e(nc|pub)|[a-z]?html?(\.gz)?|m(obi|d)|djvu?|chm|rtf|[tc]sv|dcx)$')
+audioFile = r'^.*\.(m(4[abp]|ka|p[+c123]|idi?)|w(ma|a?v)|flac|a(ac|c3|pe|u)|dts|oga|tta|gsm|'
+audioFile = re.compile(audioFile + r'ra|ofr|s(px|nd))$')
 
 
 
@@ -288,10 +288,27 @@ print('\r' + str(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
 
 
 
-# DEDUPLICATING FILES
+# REMOVING EMPTY FILES
 
+sys.stdout.write(r'Removing empty files...')
 files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
 files = sorted(files)
+j = 0
+if (files[0][0] == 0):
+    for i in range(0, len(files)):
+        if (files[i][0] != 0): break
+        j += 1
+    for i in range(0, j):
+        progress(r'Removing empty files...', (j - (j - i)), j)
+        os.remove(files[i][2])
+        files[i] = (0, r'', files[i][2])
+print('\r' + str(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
+
+
+
+# DEDUPLICATING FILES
+
+sys.stdout.write(r'Deduplicating files...')
 done = 0
 actuallyDeduped = 0
 for i in range(0, len(files)):
@@ -314,6 +331,7 @@ print('\r' + str(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' 
 
 # STARTING TO PROCESS FILES
 
+sys.stdout.write(r'Processing files...')
 done = 0
 
 
@@ -359,7 +377,7 @@ for i in range(0, len(files)):
 
 # REMOVING UNSUPPORTED FILES FROM THE LIST
 
-unsupportedFormats = re.compile(r'^.*\.(d2s|sys|[ao]|json(lz4)?|class|m3u)$')
+unsupportedFormats = re.compile(r'^.*\.(d2s|sys|[ao]|json(lz4)?|class|m3u|pyc)$')
 files = [file for file in files if not unsupportedFormats.match(file)]
 done = initialTotal - len(files)
 progress(r'Processing files...', done, initialTotal)
@@ -522,7 +540,7 @@ files = buffer
 
 buffer = []
 for i in range(0, len(files)):
-    if (picture.match(files[i])):
+    if (pictureFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
         try: image = Image.open(files[i], r'r')
@@ -599,7 +617,7 @@ files = buffer
 
 buffer = []
 for i in range(0, len(files)):
-    if (audio.match(files[i])):
+    if (audioFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
         try:
@@ -608,7 +626,7 @@ for i in range(0, len(files)):
             os.rename(files[i], newFilename)
         except:
             continue
-    elif (video.match(files[i])):
+    elif (videoFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
         try:
@@ -779,7 +797,7 @@ files = buffer
 
 buffer = []
 for i in range(0, len(files)):
-    if (font.match(files[i])):
+    if (fontFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
         newFilename = fontFilename(files[i])
@@ -886,7 +904,7 @@ for path, subdirs, items in os.walk(sys.argv[-1]):
     files += [os.path.join(path, name) for name in items]
 initialTotal = len(files)
 for file in files:
-    if (ambigMedia.match(file)):
+    if (ambigMediaFile.match(file)):
         av = MediaInfo.parse(file)
         audioOnly = True
         for track in av.tracks:
@@ -897,12 +915,12 @@ for file in files:
         else: files[done] = moveNotReplacing(file, videosSubdir)
     else:
         if (file.endswith(r'txt')): files[done] = moveNotReplacing(file, txtSubdir)
-        elif (font.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
-        elif (video.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
-        elif (audio.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
-        elif (document.match(file)): files[done] = moveNotReplacing(file, documentsSubdir)
-        elif (picture.match(file)): files[done] = moveNotReplacing(file, picturesSubdir)
-        elif (code.match(file)): files[done] = moveNotReplacing(file, codeSubdir)
+        elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
+        elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
+        elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
+        elif (documentFile.match(file)): files[done] = moveNotReplacing(file, documentsSubdir)
+        elif (pictureFile.match(file)): files[done] = moveNotReplacing(file, picturesSubdir)
+        elif (codeFile.match(file)): files[done] = moveNotReplacing(file, codeSubdir)
         else: files[done] = moveNotReplacing(file, miscSubdir)
     done += 1
     progress(r'Organizing files...', done, initialTotal)
