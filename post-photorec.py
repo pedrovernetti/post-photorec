@@ -17,10 +17,11 @@
 #
 # #  In order to have this script working (if it is currently not), run 'install.sh'. In case
 #    it is missing or does not work, follow these steps:
-# 1. install pip (Python package installer) using your package manager;   .
-# 2. with pip, install cchardet, lxml, pymediainfo, pillow, pypdf2,       .
+# 1. install libmediainfo-dev using your package manager;                 .
+# 2. install pip (Python package installer) using your package manager;   .
+# 3. with pip, install cchardet, lxml, pymediainfo, pillow, pypdf2,       .
 #    olefile and fonttools;                                               .
-# 3. Make sure this script has execution permission.                      .
+# 4. Make sure this script has execution permission.                      .
 #
 # =============================================================================================
 
@@ -75,7 +76,9 @@ _table[ord(r'<')] = r'('
 _table[ord(r'>')] = r')'
 
 def _normalized( stringOrStrings ):
-    if (isinstance(stringOrStrings, list)):
+    if (stringOrStrings is None):
+    	return r''
+    elif (isinstance(stringOrStrings, list)):
         return [_normalized(string) for string in stringOrStrings]
     elif (isinstance(stringOrStrings, dict)):
         return dict((key, _normalized(string)) for key, string in stringOrStrings.items())
@@ -128,6 +131,53 @@ def decodedFileContent( file ):
 
 # METADATA-TO-FILENAME FUNCTIONS
 
+def nonEXIFImageFilename( image, currentName ):
+    return currentName
+
+def imageFilename( image, currentName ):
+    try: EXIF = image._getexif()
+    except: EXIF = None
+    print(currentName + " :: " + str(EXIF is not None))
+    if ((EXIF is None) or (len(EXIF) < 1)):
+        try: image.load()
+        except: return currentName
+        EXIF = image.info.get(r'exif', None)
+        if ((EXIF is None) or (len(EXIF) < 1)):
+            newFilename = nonEXIFImageFilename(image, currentName)
+            image.close()
+            return newFilename
+        else:
+            image.close()
+    try:
+        cameraModel = EXIF.get(272, EXIF.get(50709, EXIF.get(50708, EXIF.get(271, EXIF.get(50735)))))
+        if (isinstance(cameraModel, bytes)): cameraModel = cameraModel.decode(r'utf-8', r'ignore')
+        cameraModel = re.sub(r'(\s+|\(.*?\))', r'', cameraModel) if (cameraModel is not None) else r''
+    except:
+        cameraModel = r''
+    try:
+        date = EXIF.get(36867, EXIF.get(36868, EXIF.get(306, EXIF.get(29, r'')))).replace(r':', r'-')
+    except:
+        date = r''
+    print(date)
+    if (len(date) < 8):
+        try:
+            author = EXIF.get(315, EXIF.get(40093))
+            if (isinstance(author, bytes)): author = author.decode(r'utf-8', r'ignore')
+            author = (author + r' - ') if (author is not None) else r''
+        except:
+            author = r''
+        try:
+            title = EXIF.get(270, EXIF.get(40091))
+            if (isinstance(title, bytes)): title = title.decode(r'utf-8', r'ignore')
+        except:
+            title = None
+        if ((title is None) or (len(title) < 2)): return currentName
+        newFilename = _normalized(author + title + r'.' + os.path.extsplit(currentName)[-1])
+    else:
+        newFilename = _normalized(cameraModel + r' ' + date + r'.' + os.path.extsplit(currentName)[-1])
+    print (newFilename)
+    return os.path.join(os.path.split(currentName)[0], newFilename)
+
 def songFilename( parsedInfo, currentName ):
     if (parsedInfo.tracks[0].overall_bit_rate is not None):
         bitrate = parsedInfo.tracks[0].overall_bit_rate
@@ -147,9 +197,8 @@ def songFilename( parsedInfo, currentName ):
     final = _normalized(artist + album + title + bitrate)
     if (len(final) <= 1): return currentName
     path = currentName.rsplit(os.path.sep, 1)[0]
-    extension = currentName.rsplit(r'.', 1)[-1]
     if (extension == r'mp4'): extension = r'm4a'
-    return os.path.join(path, (final + r'.' + extension))
+    return os.path.join(path, (final + r'.' + os.path.extsplit(currentName)[-1]))
 
 def videoFilename( parsedInfo, currentName ):
     res = r''
@@ -174,36 +223,38 @@ def videoFilename( parsedInfo, currentName ):
     else: artist = r''
     final = _normalized(artist + title + res)
     if ((len(artist) + len(title)) == 0):
-        if (currentName.endswith(res + r'.' + currentName.rsplit(r'.', 1)[-1])): return currentName
+        if (currentName.endswith(res + r'.' + os.path.extsplit(currentName)[-1])): return currentName
         final = currentName.rsplit(os.path.sep, 1)[-1]
         final = _normalized(final.rsplit(r'.', 1)[0] + res)
     if (len(final) <= 1): return currentName
     path = currentName.rsplit(os.path.sep, 1)[0]
-    return os.path.join(path, (final + r'.' + currentName.rsplit(r'.', 1)[-1]))
+    return os.path.join(path, (final + r'.' + os.path.extsplit(currentName)[-1]))
 
-def fontFilename( currentName ):
+def fontFilename( currentName ): #TODO silently exiting
     if (re.match(r'^.*\.([ot]t[cf]|tte|dfont)$', currentName)):
-        font = ttLib.TTFont(currentName)
+        try: font = ttLib.TTFont(currentName)
+        except: return currentName
     else:
         return currentName
     name = r''
     family = r''
     _mute()
     for record in font[r'name'].names:
-        if (b'\x00' in record.string):
-            name_str = record.string.decode(r'utf-16-be')
-        else:
-            try:
-                name_str = record.string.decode(r'utf-8')
-            except:
-                try: name_str = record.string.decode(r'latin-1')
-                except: return currentName
+        try:
+            if (b'\x00' in record.string):
+                name_str = record.string.decode(r'utf-16-be')
+            else:
+                try: name_str = record.string.decode(r'utf-8')
+                except: name_str = record.string.decode(r'latin-1')
+        except:
+            return currentName
         if ((record.nameID == 2) and (not name)): name = name_str
         elif ((record.nameID == 1) and (not family)): family = name_str
         if (name and family): break
     _unmute()
     path = currentName.rsplit(os.path.sep, 1)[0]
     name = _normalized(family + r' ' + name)
+    if (len(name) < 2): return currentName
     return os.path.join(path, (name + r'.' + currentName.rsplit(r'.', 1)[-1]))
 
 def torrentFilename( currentName ):
@@ -265,7 +316,7 @@ codeFile = r'^.*\.([CcHh](\+\+|pp)|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp
 codeFile += r'go|a(sp|d[bs])|c([bq]?l|lj[sc]?|ob(ra)?|py|yp)|li?sp|t(cl|bc)|j(ava|j)|(m|[eh]r)l|l?hs|'
 codeFile += r'[rv]b|vhdl?|exs?|dart|applescript|f(or|90)|boo|[jt]sx|va(la|pi)|GAMBAS|(lit)?coffee|'
 codeFile = re.compile(codeFile + 'fs([ix]|script)|jl|lua|mm|w?asm|hx(ml)?|g(v|roov)?y|w(l|at)|b(at|tm)|cmd)$')
-pictureFile = r'^.*\.(a(n?i|png)|b([lm]p|pg)|d(c[rx]|ds|ib)|e(ps[fi]?|mf)|g(d|if)|i(mt?|co|cns)|flif|vsd'
+pictureFile = r'^.*\.(a(n?i|png)|b([lm]p|pg)|d(c[rx]|ds|ib)|e(ps[fi]?|mf)|g(d|if)|i(mt?|co|cns)|flif|vsd|'
 pictureFile += r'j(p[2efx]|[np]g|peg|xr)|m(ic|po|sp|ng)|p(c[dx]|ng|[abgnp]m|s[db])|odg|c(in|r2|rw|ur)|'
 pictureFile = re.compile(pictureFile + r'[hw]dp|heic|s(gi|vgz?)|t(ga|iff?)|w(al|ebp|mf|bmp|pg)|x([bp]m|cf))$')
 ambigMediaFile = re.compile(r'^.*\.(asf|ogg|webm|rm(vb)?|riff|3g(p?[p2]|pp2))$')
@@ -362,13 +413,15 @@ progress(r'Processing files...', done, initialTotal)
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-exedllNamedFile = r'^f[0-9]{5,}_(.*)[._]([Dd][Ll][Ll]|[Ee][Xx][Ee]|[Dd]2[Ss]|[Zz][Ii][Pp]|'
-exedllNamedFile = re.compile(exedllNamedFile + '[Ss][Yy][Ss]|[Dd][Oo][Cc]|[Pp][Dd][Ff])$')
+prenamedFile = r'^f[0-9]{5,}_(.*)[._](([DdRr][Ll][Ll]|[Ee][Xx][Ee])(_[Mm][Uu][Ii])?|'
+prenamedFile += r'[Dd]2[Ss]|[Zz][Ii][Pp]|[Ss][Yy][Ss]|'
+prenamedFile = re.compile(prenamedFile + '[Dd][Oo][Cc]|[Pp][Dd][Ff])$')
+def fixedPhotoRecName( match ):
+    return match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.')
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
-    if (exedllNamedFile.match(filename)):
-        newFilename = exedllNamedFile.sub(r'\1.\2', filename)
-        newFilename = newFilename[:-4] + newFilename[-4:].lower()
+    if (prenamedFile.match(filename)):
+        newFilename = prenamedFile.sub(fixedPhotoRecName, filename)
         newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
         os.rename(files[i], newFilename)
         files[i] = newFilename
@@ -543,40 +596,12 @@ for i in range(0, len(files)):
     if (pictureFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
-        try: image = Image.open(files[i], r'r')
-        except: continue
-        try: EXIF = image._getexif()
-        except: EXIF = None
-        image.close()
-        if ((EXIF is None) or (len(EXIF) < 1)): continue
         try:
-            cameraModel = EXIF.get(272, EXIF.get(50709, EXIF.get(50708, EXIF.get(271, EXIF.get(50735)))))
-            if (isinstance(cameraModel, bytes)): cameraModel = cameraModel.decode(r'utf-8', r'ignore')
-            cameraModel = re.sub(r'(\s+|\(.*?\))', r'', cameraModel) if (cameraModel is not None) else r''
+            image = Image.open(files[i], r'r')
+            newFilename = imageFilename(image, files[i])
+            os.rename(files[i], newFilename)
         except:
-            cameraModel = r''
-        try:
-            date = EXIF.get(36867, EXIF.get(36868, EXIF.get(306, EXIF.get(29, r'')))).replace(r':', r'-')
-        except:
-            date = r''
-        if (len(date) < 8):
-            try:
-                author = EXIF.get(315, EXIF.get(40093))
-                if (isinstance(author, bytes)): author = author.decode(r'utf-8', r'ignore')
-                author = (author + r' - ') if (author is not None) else r''
-            except:
-                author = r''
-            try:
-                title = EXIF.get(270, EXIF.get(40091))
-                if (isinstance(title, bytes)): title = title.decode(r'utf-8', r'ignore')
-            except:
-                title = None
-            if ((title is None) or (len(title) < 2)): continue
-            newFilename = _normalized(author + title + r'.' + files[i].rsplit(r'.', 1)[-1])
-        else:
-            newFilename = _normalized(cameraModel + r' ' + date + r'.' + files[i].rsplit(r'.', 1)[-1])
-        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-        os.rename(files[i], newFilename)
+            continue
     else:
         buffer.append(files[i])
 files = buffer
@@ -626,7 +651,13 @@ for i in range(0, len(files)):
             os.rename(files[i], newFilename)
         except:
             continue
-    elif (videoFile.match(files[i])):
+    else:
+        buffer.append(files[i])
+files = buffer
+
+buffer = []
+for i in range(0, len(files)):
+    if (videoFile.match(files[i])):
         done += 1
         progress(r'Processing files...', done, initialTotal)
         try:
