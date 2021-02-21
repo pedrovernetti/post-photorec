@@ -319,7 +319,7 @@ def removeJunkFile( filePath ):
     removedJunkFiles += 1
 
 def moveNotReplacing( file, toWhere ):
-    newFilename = os.path.join(toWhere, os.path.split(file)[-1])
+    newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
     if (file == newFilename): return
     try:
         os.rename(file, newFilename)
@@ -327,7 +327,7 @@ def moveNotReplacing( file, toWhere ):
     except:
         i = 2
         name, ext = os.path.splitext(os.path.split(file)[-1])
-        name = os.path.join(toWhere, name)
+        name = os.path.join(toWhere, name.strip())
         while True:
             try:
                 newFilename = name + r' (' + str(i) + r')' + ext
