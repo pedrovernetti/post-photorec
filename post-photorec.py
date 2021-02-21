@@ -330,25 +330,27 @@ audioFile = re.compile(audioFile + r'ra|ofr|s(px|nd))$')
 
 
 
-# PROCESSING COMMAND LINE
+# PROCESSING COMMAND LINE ARGUMENTS
 
 targetRootDir = None
 for arg in sys.argv:
     if (os.path.isdir(arg)):
         if (targetRootDir is None): targetRootDir = arg
         else: error("More than one path passed as argument", 2)
-if (r'-Q' in sys.argv):
+if (r'-Q' in sys.argv): # Not-so-verbose mode (no progress output)
     def progress( message, done, total ): pass
-if (r'-q' in sys.argv):
+if (r'-q' in sys.argv): # Quiet mode (no verbosity at all)
     def progress( message, done, total ): pass
     def print( *args ): pass
     def _unmute(): sys.stderr = sys.__stderr__
     sys.stdout = open(os.devnull, r'w')
+option_removeKnownJunk = r'-J' not in sys.argv # Do not remove junk files
 if (r'-J' in sys.argv):
-    def removeJunkFile( filePath ): os.remove(filePath)
-else:
     def removeJunkFile( filePath ): pass
-option_removeDuplicates = r'-D' not in sys.argv
+else:
+    def removeJunkFile( filePath ): os.remove(filePath)
+option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
+option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
 
 
 
@@ -931,84 +933,87 @@ print('\r' + str(done) + ' files analyzed' + (r' ' * 20) + ('\b' * 20))
 
 # CREATING MORE MEANINGFUL SUBDIRECTORIES
 
-audioSubdir = os.path.join(targetRootDir, r'Audio')
-try: os.mkdir(audioSubdir)
-except: pass
-documentsSubdir = os.path.join(targetRootDir, r'Documents')
-try: os.mkdir(documentsSubdir)
-except: pass
-fontsSubdir = os.path.join(targetRootDir, r'Fonts')
-try: os.mkdir(fontsSubdir)
-except: pass
-picturesSubdir = os.path.join(targetRootDir, r'Pictures')
-try: os.mkdir(picturesSubdir)
-except: pass
-videosSubdir = os.path.join(targetRootDir, r'Videos')
-try: os.mkdir(videosSubdir)
-except: pass
-txtSubdir = os.path.join(targetRootDir, r'Plain Text')
-try: os.mkdir(txtSubdir)
-except: pass
-codeSubdir = os.path.join(targetRootDir, r'Code')
-try: os.mkdir(codeSubdir)
-except: pass
-miscSubdir = os.path.join(targetRootDir, r'Misc')
-try: os.mkdir(miscSubdir)
-except: pass
+if (not option_keepDirStructure):
+    audioSubdir = os.path.join(targetRootDir, r'Audio')
+    try: os.mkdir(audioSubdir)
+    except: pass
+    documentsSubdir = os.path.join(targetRootDir, r'Documents')
+    try: os.mkdir(documentsSubdir)
+    except: pass
+    fontsSubdir = os.path.join(targetRootDir, r'Fonts')
+    try: os.mkdir(fontsSubdir)
+    except: pass
+    picturesSubdir = os.path.join(targetRootDir, r'Pictures')
+    try: os.mkdir(picturesSubdir)
+    except: pass
+    videosSubdir = os.path.join(targetRootDir, r'Videos')
+    try: os.mkdir(videosSubdir)
+    except: pass
+    txtSubdir = os.path.join(targetRootDir, r'Plain Text')
+    try: os.mkdir(txtSubdir)
+    except: pass
+    codeSubdir = os.path.join(targetRootDir, r'Code')
+    try: os.mkdir(codeSubdir)
+    except: pass
+    miscSubdir = os.path.join(targetRootDir, r'Misc')
+    try: os.mkdir(miscSubdir)
+    except: pass
 
 
 
 # SORTING FILES INTO MORE MEANINGFUL SUBDIRECTORIES
 
-done = 0
-files = []
-for path, subdirs, items in os.walk(targetRootDir):
-    files += [os.path.join(path, name) for name in items]
-initialTotal = len(files)
-for file in files:
-    if (ambigMediaFile.match(file)):
-        av = MediaInfo.parse(file)
-        audioOnly = True
-        for track in av.tracks:
-            if (track.track_type[0] == r'V'):
-                audioOnly = False
-                break
-        if (audioOnly): files[done] = moveNotReplacing(file, audioSubdir)
-        else: files[done] = moveNotReplacing(file, videosSubdir)
-    else:
-        if (file.endswith(r'txt')): files[done] = moveNotReplacing(file, txtSubdir)
-        elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
-        elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
-        elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
-        elif (documentFile.match(file)): files[done] = moveNotReplacing(file, documentsSubdir)
-        elif (pictureFile.match(file)): files[done] = moveNotReplacing(file, picturesSubdir)
-        elif (codeFile.match(file)): files[done] = moveNotReplacing(file, codeSubdir)
-        else: files[done] = moveNotReplacing(file, miscSubdir)
-    done += 1
-    progress(r'Organizing files...', done, initialTotal)
+if (not option_keepDirStructure):
+    done = 0
+    files = []
+    for path, subdirs, items in os.walk(targetRootDir):
+        files += [os.path.join(path, name) for name in items]
+    initialTotal = len(files)
+    for file in files:
+        if (ambigMediaFile.match(file)):
+            av = MediaInfo.parse(file)
+            audioOnly = True
+            for track in av.tracks:
+                if (track.track_type[0] == r'V'):
+                    audioOnly = False
+                    break
+            if (audioOnly): files[done] = moveNotReplacing(file, audioSubdir)
+            else: files[done] = moveNotReplacing(file, videosSubdir)
+        else:
+            if (file.endswith(r'txt')): files[done] = moveNotReplacing(file, txtSubdir)
+            elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
+            elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
+            elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
+            elif (documentFile.match(file)): files[done] = moveNotReplacing(file, documentsSubdir)
+            elif (pictureFile.match(file)): files[done] = moveNotReplacing(file, picturesSubdir)
+            elif (codeFile.match(file)): files[done] = moveNotReplacing(file, codeSubdir)
+            else: files[done] = moveNotReplacing(file, miscSubdir)
+        done += 1
+        progress(r'Organizing files...', done, initialTotal)
 
 
 
 # FURTHER SPLITTING FILES INTO SUB-SUBDIRECTORIES
 
-maxFilesPerDir = 250
-for subdir in [os.path.join(targetRootDir, d) for d in os.listdir(targetRootDir)]:
-    files = [os.path.join(subdir, file) for file in os.listdir(subdir)]
-    files = [file for file in files if os.path.isfile(file)]
-    if (len(files) <= maxFilesPerDir): continue
-    files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
-    i = 0
-    for chunk in files:
-        i += 1
-        subsubdir = os.path.join(subdir, str(i))
-        try:
-            os.mkdir(subsubdir)
-        except FileExistsError:
-            if (not os.path.isdir(subsubdir)): continue
-        except:
-            continue
-        for file in chunk:
-            os.rename(file, os.path.join(subsubdir, os.path.split(file)[-1]))
+if (not option_keepDirStructure):
+    maxFilesPerDir = 250
+    for subdir in [os.path.join(targetRootDir, d) for d in os.listdir(targetRootDir)]:
+        files = [os.path.join(subdir, file) for file in os.listdir(subdir)]
+        files = [file for file in files if os.path.isfile(file)]
+        if (len(files) <= maxFilesPerDir): continue
+        files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
+        i = 0
+        for chunk in files:
+            i += 1
+            subsubdir = os.path.join(subdir, str(i))
+            try:
+                os.mkdir(subsubdir)
+            except FileExistsError:
+                if (not os.path.isdir(subsubdir)): continue
+            except:
+                continue
+            for file in chunk:
+                os.rename(file, os.path.join(subsubdir, os.path.split(file)[-1]))
 
 
 
@@ -1022,5 +1027,6 @@ for path, subdirs, items in os.walk(targetRootDir):
 
 # SOME VERBOSITY
 
-print('\r' + str(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
+if (not option_keepDirStructure):
+    print('\r' + str(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
 print('Done!')
