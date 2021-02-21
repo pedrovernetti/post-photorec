@@ -252,27 +252,24 @@ def videoFilename( parsedInfo, currentName ):
     return (final + os.path.splitext(currentName)[-1])
 
 def fontFilename( currentName ):
-    if (re.match(r'^.*\.([ot]t[cf]|tte|dfont)$', currentName)):
-        try: font = ttLib.TTFont(currentName)
-        except: return os.path.split(currentName)[-1]
-    else:
-        return os.path.split(currentName)[-1]
+    try: font = ttLib.TTFont(currentName)
+    except: return os.path.split(currentName)[-1]
     name = r''
     family = r''
     _mute()
-    for record in font[r'name'].names:
-        try:
+    try:
+        for record in font[r'name'].names:
             if (b'\x00' in record.string):
                 name_str = record.string.decode(r'utf-16-be')
             else:
                 try: name_str = record.string.decode(r'utf-8')
                 except: name_str = record.string.decode(r'latin-1')
-        except:
-            _unmute()
-            return os.path.split(currentName)[-1]
-        if ((record.nameID == 2) and (not name)): name = name_str
-        elif ((record.nameID == 1) and (not family)): family = name_str
-        if (name and family): break
+            if ((record.nameID == 2) and (not name)): name = name_str
+            elif ((record.nameID == 1) and (not family)): family = name_str
+            if (name and family): break
+    except:
+        _unmute()
+        return os.path.split(currentName)[-1]
     path = currentName.rsplit(os.path.sep, 1)[0]
     name = _normalized(family + r' ' + name)
     _unmute()
