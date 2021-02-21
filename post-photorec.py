@@ -137,7 +137,6 @@ def nonEXIFImageFilename( image, currentName ):
 def imageFilename( image, currentName ):
     try: EXIF = image._getexif()
     except: EXIF = None
-    print(currentName + " :: " + str(EXIF is not None))
     if ((EXIF is None) or (len(EXIF) < 1)):
         try: image.load()
         except: return currentName
@@ -158,7 +157,6 @@ def imageFilename( image, currentName ):
         date = EXIF.get(36867, EXIF.get(36868, EXIF.get(306, EXIF.get(29, r'')))).replace(r':', r'-')
     except:
         date = r''
-    print(date)
     if (len(date) < 8):
         try:
             author = EXIF.get(315, EXIF.get(40093))
@@ -230,7 +228,7 @@ def videoFilename( parsedInfo, currentName ):
     path = currentName.rsplit(os.path.sep, 1)[0]
     return os.path.join(path, (final + r'.' + os.path.extsplit(currentName)[-1]))
 
-def fontFilename( currentName ): #TODO silently exiting
+def fontFilename( currentName ):
     if (re.match(r'^.*\.([ot]t[cf]|tte|dfont)$', currentName)):
         try: font = ttLib.TTFont(currentName)
         except: return currentName
