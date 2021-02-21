@@ -52,6 +52,9 @@ def progress( message, done, total ):
     p = str(done) + r'/' + str(total)
     sys.stdout.write('\r' + message + r' ' + p.ljust(progressLen) + ('\b' * (progressLen - len(p))))
 
+def _num( x ):
+    return (str(x) if (x > 0) else r'No')
+
 def _unmute():
     sys.stderr = sys.__stderr__
     sys.stdout = sys.__stdout__
@@ -135,19 +138,25 @@ def decodedFileContent( file ):
 
 # METADATA-TO-FILENAME FUNCTIONS
 
-def nonEXIFImageFilename( image, currentName ):
-    return currentName
+def nonEXIFImageFilename( imageInfo, currentName ):
+    date = imageInfo.get(r'Creation Time', r'').replace(r':', r'-')
+    return os.path.split(currentName)[-1]
 
 def imageFilename( image, currentName ):
+    _mute()
     try: EXIF = image._getexif()
     except: EXIF = None
     if ((EXIF is None) or (len(EXIF) < 1)):
-        try: image.load()
-        except: return currentName
-        EXIF = image.info.get(r'exif', None)
+        try:
+            image.load()
+            EXIF = image.info.get(r'exif', None)
+        except:
+            _unmute()
+            return os.path.split(currentName)[-1]
         if ((EXIF is None) or (len(EXIF) < 1)):
-            newFilename = nonEXIFImageFilename(image, currentName)
+            newFilename = nonEXIFImageFilename(image.info, currentName)
             image.close()
+            _unmute()
             return newFilename
         else:
             image.close()
@@ -173,14 +182,14 @@ def imageFilename( image, currentName ):
             if (isinstance(title, bytes)): title = title.decode(r'utf-8', r'ignore')
         except:
             title = None
-        if ((title is None) or (len(title) < 2)): return currentName
-        newFilename = _normalized(author + title + r'.' + os.path.extsplit(currentName)[-1])
+        if ((title is None) or (len(title) < 2)): return os.path.split(currentName)[-1]
+        return _normalized(author + title + os.path.splitext(currentName)[-1])
     else:
-        newFilename = _normalized(cameraModel + r' ' + date + r'.' + os.path.extsplit(currentName)[-1])
-    print (newFilename)
-    return os.path.join(os.path.split(currentName)[0], newFilename)
+        _unmute()
+        return _normalized(cameraModel + r' ' + date + os.path.splitext(currentName)[-1])
 
 def songFilename( parsedInfo, currentName ):
+    _mute()
     if (parsedInfo.tracks[0].overall_bit_rate is not None):
         bitrate = parsedInfo.tracks[0].overall_bit_rate
         if (bitrate > 1024): bitrate = str(int(bitrate // 1000)) + r' kbps'
@@ -197,12 +206,17 @@ def songFilename( parsedInfo, currentName ):
     if (parsedInfo.tracks[0].album is not None): album = parsedInfo.tracks[0].album + r' - '
     else: album = r''
     final = _normalized(artist + album + title + bitrate)
-    if (len(final) <= 1): return currentName
+    if (len(final) <= 1):
+        _unmute()
+        return os.path.split(currentName)[-1]
     path = currentName.rsplit(os.path.sep, 1)[0]
-    if (extension == r'mp4'): extension = r'm4a'
-    return os.path.join(path, (final + r'.' + os.path.extsplit(currentName)[-1]))
+    extension = os.path.splitext(currentName)[-1]
+    if (extension == r'.mp4'): extension = r'.m4a'
+    _unmute()
+    return (final + extension)
 
 def videoFilename( parsedInfo, currentName ):
+    _mute()
     res = r''
     for track in parsedInfo.tracks:
         if (track.track_type[0] == r'V'):
@@ -225,19 +239,24 @@ def videoFilename( parsedInfo, currentName ):
     else: artist = r''
     final = _normalized(artist + title + res)
     if ((len(artist) + len(title)) == 0):
-        if (currentName.endswith(res + r'.' + os.path.extsplit(currentName)[-1])): return currentName
+        if (currentName.endswith(res + os.path.splitext(currentName)[-1])):
+            _unmute()
+            return os.path.split(currentName)[-1]
         final = currentName.rsplit(os.path.sep, 1)[-1]
         final = _normalized(final.rsplit(r'.', 1)[0] + res)
-    if (len(final) <= 1): return currentName
+    if (len(final) <= 1):
+        _unmute()
+        return os.path.split(currentName)[-1]
     path = currentName.rsplit(os.path.sep, 1)[0]
-    return os.path.join(path, (final + r'.' + os.path.extsplit(currentName)[-1]))
+    _unmute()
+    return (final + os.path.splitext(currentName)[-1])
 
 def fontFilename( currentName ):
     if (re.match(r'^.*\.([ot]t[cf]|tte|dfont)$', currentName)):
         try: font = ttLib.TTFont(currentName)
-        except: return currentName
+        except: return os.path.split(currentName)[-1]
     else:
-        return currentName
+        return os.path.split(currentName)[-1]
     name = r''
     family = r''
     _mute()
@@ -249,21 +268,22 @@ def fontFilename( currentName ):
                 try: name_str = record.string.decode(r'utf-8')
                 except: name_str = record.string.decode(r'latin-1')
         except:
-            return currentName
+            _unmute()
+            return os.path.split(currentName)[-1]
         if ((record.nameID == 2) and (not name)): name = name_str
         elif ((record.nameID == 1) and (not family)): family = name_str
         if (name and family): break
-    _unmute()
     path = currentName.rsplit(os.path.sep, 1)[0]
     name = _normalized(family + r' ' + name)
-    if (len(name) < 2): return currentName
-    return os.path.join(path, (name + r'.' + currentName.rsplit(r'.', 1)[-1]))
+    _unmute()
+    if (len(name) < 2): return os.path.split(currentName)[-1]
+    return (name + r'.' + currentName.rsplit(r'.', 1)[-1])
 
 def torrentFilename( currentName ):
-    if (not os.path.isfile(currentName)): return currentName
+    if (not os.path.isfile(currentName)): return os.path.split(currentName)[-1]
     with open(currentName, r'rb') as f:
         try: content = f.readline()
-        except: return currentName
+        except: return os.path.split(currentName)[-1]
         content = content.split(b'6:pieces')[0]
         try:
             encoding = cchardet.detect(content)[r'encoding']
@@ -272,19 +292,36 @@ def torrentFilename( currentName ):
             encoding = r'utf-8'
         content = content.decode(encoding, r'ignore')
         name = re.findall(r'4:name([0-9]+):', content)
-        if (len(name) == 0): return currentName
+        if (len(name) == 0): return os.path.split(currentName)[-1]
         name = re.findall(r'4:name' + name[0] + ':(.{' + name[0] + '})', content)
-        if (len(name) == 0): return currentName
+        if (len(name) == 0): return os.path.split(currentName)[-1]
         path = currentName.rsplit(os.path.sep, 1)[0]
-        return os.path.join(path, (_normalized(name[0]) + r'.torrent'))
+        return (_normalized(name[0]) + r'.torrent')
 
 
 
-# SPECIAL FILE MANIPULATION FUNCTION
+# SPECIAL FILE MANIPULATION FUNCTIONS
+
+renamedFiles = 0
+def rename( filePath, newName ):
+    if (len(newName) > 255):
+        extension = os.path.splitext(newName)[-1]
+        newName = newName[:(255 - len(extension))] + extension
+    try: os.rename(filePath, os.path.join(os.path.split(filePath)[0], newName))
+    except: return
+    global renamedFiles
+    renamedFiles += 1
+
+removedJunkFiles = 0
+def removeJunkFile( filePath ):
+    os.remove(filePath)
+    global removedJunkFiles
+    removedJunkFiles += 1
 
 def moveNotReplacing( file, toWhere ):
+    newFilename = os.path.join(toWhere, os.path.split(file)[-1])
+    if (file == newFilename): return
     try:
-        newFilename = os.path.join(toWhere, os.path.split(file)[-1])
         os.rename(file, newFilename)
         return newFilename
     except:
@@ -293,7 +330,7 @@ def moveNotReplacing( file, toWhere ):
         name = os.path.join(toWhere, name)
         while True:
             try:
-                newFilename = name + r' (' + str(i) + r').' + ext
+                newFilename = name + r' (' + str(i) + r')' + ext
                 os.rename(file, newFilename)
                 return newFilename
             except FileExistsError:
@@ -346,17 +383,13 @@ if (r'-q' in sys.argv): # Quiet mode (no verbosity at all)
     def _unmute(): sys.stderr = sys.__stderr__
     sys.stdout = open(os.devnull, r'w')
 
-removedJunkFiles = 0
 option_removeKnownJunk = r'-J' not in sys.argv # Do not remove junk files
-if (r'-J' in sys.argv):
+if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
-else:
-    def removeJunkFile( filePath ):
-        os.remove(filePath)
-        removedJunkFiles += 1
 
 option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
 option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
+
 
 
 
@@ -367,7 +400,8 @@ files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
 initialTotal = len(files)
-print('\r' + str(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
+if (initialTotal == 1): print('\r1 file found' + (r' ' * 50) + ('\b' * 50))
+else: print('\r' + _num(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -385,10 +419,8 @@ if (files[0][0] == 0):
         progress(r'Removing empty files...', (j - (j - i)), j)
         os.remove(files[i][2])
         files[i] = (0, r'', files[i][2])
-if (j == 1):
-    print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
-else:
-    print('\r' + str(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
+if (j == 1): print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
+else: print('\r' + _num(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -410,11 +442,8 @@ if (option_removeDuplicates):
                     files[j] = (0, r'', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
-    if (actuallyDeduped == 1):
-        print('\r1 duplicate removed' + (r' ' * 50) + ('\b' * 50))
-    else:
-        print('\r' + str(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
-
+    if (actuallyDeduped == 1): print('\r1 duplicate removed' + (r' ' * 50) + ('\b' * 50))
+    else: print('\r' + _num(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -463,9 +492,7 @@ def fixedPhotoRecName( match ):
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
     if (prenamedFile.match(filename)):
-        newFilename = prenamedFile.sub(fixedPhotoRecName, filename)
-        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-        os.rename(files[i], newFilename)
+        rename(files[i], prenamedFile.sub(fixedPhotoRecName, filename))
         files[i] = newFilename
 
 
@@ -503,27 +530,27 @@ for i in range(0, len(files)):
                 ((len(logLine1.findall(content)) >= (lineCount - 1)) or
                 (len(logLine2.findall(content)) >= (lineCount - 1)) or
                 (len(logLine3.findall(content)) >= (lineCount - 1)))):
-                os.rename(files[i], (files[i][:-4] + r'.log'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.log'))
                 done += 1
             elif (content.startswith(r'<?xml')):
-                os.rename(files[i], (files[i][:-4] + r'.xml'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.xml'))
                 buffer.append(files[i][:-4] + r'.xml')
             elif (len(srtTime.findall(content)) > max(1, (lineCount / 8))):
-                os.rename(files[i], (files[i][:-4] + r'.srt'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.srt'))
                 buffer.append(files[i][:-4] + r'.srt')
             elif ((r'<!-- Created with Inkscape (http://www.inkscape.org/) -->' in content) and
                 (r'</svg>' in content)):
-                os.rename(files[i], (files[i][:-4] + r'.svg'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.svg'))
                 buffer.append(files[i][:-4] + r'.svg')
             elif (len(tclLine.findall(content)) > 0):
-                os.rename(files[i], (files[i][:-4] + r'.tcl'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.tcl'))
                 buffer.append(files[i][:-4] + r'.tcl')
             else:
                 done += 1
                 if (maybeJSON.match(content)):
                     try:
                         junk = json.loads(content)
-                        os.rename(files[i], (files[i][:-4] + r'.json'))
+                        rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.json'))
                         del junk
                         continue
                     except:
@@ -532,8 +559,7 @@ for i in range(0, len(files)):
                 if (len(gpd_pcfName) == 1):
                     newFilename = _normalized(gpd_pcfName[0][1])
                     newFilename = re.sub(r'(\.[GgPp][Pp][Dd])$', lambda x: x.group(0).lower(), newFilename)
-                    newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-                    os.rename(files[i], newFilename)
+                    rename(files[i], newFilename)
                     continue
                 elif (((lineCount > 6) and (len(xmlLine.findall(content)) >= (lineCount - 1)) and
                       (len(windowsJunkXMLLine.findall(content)) > (lineCount / 6))) or
@@ -556,12 +582,12 @@ for i in range(0, len(files)):
             lineCount = content.count('\n')
             if (content.startswith(r'[Script Info]')):
                 if (len(ssaLine.findall(content)) > max(1, ((lineCount / 3) - 25))):
-                    os.rename(files[i], (files[i][:-4] + r'.ass'))
+                    rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.ass'))
                     buffer.append(files[i][:-4] + r'.ass')
                 else:
                     buffer.append(files[i])
             elif (content.startswith(r'[General]\s*\n\s*Version=DrumSynth v2\.0')):
-                os.rename(files[i], (files[i][:-4] + r'.ds'))
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.ds'))
                 done += 1
             elif (content.startswith(r'[MIME Cache]')):
                 removeJunkFile(files[i])
@@ -569,15 +595,11 @@ for i in range(0, len(files)):
                 newFilename = desktopEntryNameLine1.findall(content)
                 if (len(newFilename) < 1):
                     newFilename = desktopEntryNameLine2.findall(content)
-                    if (len(newFilename) < 1):
-                        newFilename = files[i][:-4]
-                    else:
-                        newFilename = _normalized(re.sub(r'\s+', r'-', newFilename[0].lower()))
-                        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
+                    if (len(newFilename) < 1): newFilename = os.path.split(files[i])[-1][:-4]
+                    else: newFilename = _normalized(re.sub(r'\s+', r'-', newFilename[0].lower()))
                 else:
                     newFilename = _normalized(os.path.split(newFilename[0])[-1])
-                    newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-                os.rename(files[i], (newFilename + r'.desktop'))
+                rename(files[i], (newFilename + r'.desktop'))
                 done += 1
             else:
                 done += 1
@@ -605,13 +627,13 @@ for i in range(0, len(files)):
             content = decodedFileContent(f)
             csharp = re.findall(r'^using +[a-zA-Z0-9_.]+;', content)
             if (len(csharp) > 0):
-                os.rename(files[i], (files[i][:-5] + r'.cs'))
+                rename(files[i], (os.path.split(files[i])[-1][:-5] + r'.cs'))
                 files[i] = files[i][:-5] + r'.cs'
     elif (files[i].endswith(r'.c')):
         with open(files[i], r'rb') as f:
             content = cStrings.sub('\x22\x22', cComments.sub(r'', decodedFileContent(f)))
             if (len(cppLine.findall(content)) > 0):
-                os.rename(files[i], (files[i][:-5] + r'.cpp'))
+                rename(files[i], (os.path.split(files[i])[-1][:-5] + r'.cpp'))
                 files[i] = files[i][:-5] + r'.cpp'
     if (files[i].endswith((r'.cs', r'java'))):
         done += 1
@@ -621,10 +643,9 @@ for i in range(0, len(files)):
             pkg = packageName.findall(content)
             name = className.findall(content)
             if (len(name) != 1): continue
-            newFilename = _normalized(name[0][1]) + r'.' + files[i].rsplit(r'.', 1)[-1]
+            newFilename = _normalized(name[0][1]) + os.path.splitext(files[i])[-1]
             if (len(pkg) == 1): newFilename = _normalized(pkg[0]) + r'.' + newFilename
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], newFilename)
     else:
         buffer.append(files[i])
 files = buffer
@@ -640,8 +661,7 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             image = Image.open(files[i], r'r')
-            newFilename = imageFilename(image, files[i])
-            os.rename(files[i], newFilename)
+            rename(files[i], imageFilename(image, files[i]))
         except:
             continue
     else:
@@ -659,14 +679,12 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             av = MediaInfo.parse(files[i])
-            isM4A = True
+            M4A = True
             for track in av.tracks:
                 if (track.track_type[0] == r'V'):
-                    isM4A = False
+                    M4A = False
                     break
-            if (isM4A): newFilename = songFilename(av, files[i])
-            else: newFilename = videoFilename(av, files[i])
-            os.rename(files[i], newFilename)
+            rename(files[i], (songFilename(av, files[i]) if (M4A) else videoFilename(av, files[i])))
         except:
             continue
     elif (files[i].endswith(r'.m4a')):
@@ -674,8 +692,7 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             av = MediaInfo.parse(files[i])
-            newFilename = songFilename(av, files[i])
-            os.rename(files[i], newFilename)
+            rename(files[i], songFilename(av, files[i]))
         except:
             continue
     else:
@@ -689,8 +706,7 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             av = MediaInfo.parse(files[i])
-            newFilename = songFilename(av, files[i])
-            os.rename(files[i], newFilename)
+            rename(files[i], songFilename(av, files[i]))
         except:
             continue
     else:
@@ -704,8 +720,7 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             av = MediaInfo.parse(files[i])
-            newFilename = videoFilename(av, files[i])
-            os.rename(files[i], newFilename)
+            rename(files[i], videoFilename(av, files[i]))
         except:
             continue
     else:
@@ -729,14 +744,11 @@ for i in range(0, len(files)):
             if (info is None): continue
             author = info.get(r'/Author', r'')
             if (isinstance(author, PDFIndirectObject)): author = document.getObject(author)
-            author = _normalized(author + r' - ') if (author is not None) else r''
+            author = (author + r' - ') if (author is not None) else r''
             title = info.get(r'/Title', r'')
             if (isinstance(title, PDFIndirectObject)): title = document.getObject(title)
             if ((title is None) or (len(title) <= 1)): continue
-            title = _normalized(title)
-            newFilename = _normalized(author + title) + r'.pdf'
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], (_normalized(author + title) + r'.pdf'))
         except:
             continue
     else:
@@ -765,9 +777,7 @@ for i in range(0, len(files)):
             author = r' (' + documentMetadata.author.decode(encoding) + r')'
         if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
             title = _normalized(documentMetadata.title.decode(encoding))
-            newFilename = _normalized(title + author) + r'.' + files[i].rsplit(r'.', 1)[-1]
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
     elif (openxmlFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
@@ -783,9 +793,7 @@ for i in range(0, len(files)):
             if ((field is not None) and (len(field.text) > 1)): title = field.text
             else: continue
             XMLMetadataFile.close()
-            newFilename = _normalized(title + author) + r'.' + files[i].rsplit(r'.', 1)[-1]
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
         except:
             pass
     elif (odFile.match(files[i])):
@@ -808,9 +816,7 @@ for i in range(0, len(files)):
             field = parsedXML.find(r'//title')
             if ((field is not None) and (len(field.text) > 1)): title = field.text
             else: continue
-            newFilename = _normalized(title + author) + r'.' + files[i].rsplit(r'.', 1)[-1]
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -831,9 +837,7 @@ for i in range(0, len(files)):
             if (title is None): title = xml.find(r'.//name')
         if (title is not None): title = title.text
         else: continue
-        newFilename = _normalized(title) + r'.' + files[i].rsplit(r'.', 1)[-1]
-        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-        os.rename(files[i], newFilename)
+        rename(files[i], (_normalized(title) + os.path.splitext(files[i])[-1]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -857,9 +861,7 @@ for i in range(0, len(files)):
             if (title is None): title = xml.find(r'.//name')
         if (title is not None): title = title.text
         else: continue
-        newFilename = _normalized(title) + r'.html.gz'
-        newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-        os.rename(files[i], newFilename)
+        rename(files[i], (_normalized(title) + r'.html.gz'))
     elif (files[i].endswith(r'.gz')):
         try:
             gz = gzip.open(files[i], r'rb')
@@ -879,8 +881,7 @@ for i in range(0, len(files)):
     if (fontFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        newFilename = fontFilename(files[i])
-        os.rename(files[i], newFilename)
+        rename(files[i], fontFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -894,8 +895,7 @@ for i in range(0, len(files)):
     if (files[i].endswith(r'.torrent')):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        newFilename = torrentFilename(files[i])
-        os.rename(files[i], newFilename)
+        rename(files[i], torrentFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -913,9 +913,7 @@ for i in range(0, len(files)):
             title = re.findall(r'<title>.*</title>', decodedFileContent(f))
             if ((len(title) > 0) and (len(title[0]) > 0)):
                 newFilename = _normalized(re.sub(r'<title>(.*)</title>', r'\1', title[0]))
-                newFilename += r'.wpl'
-                newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-                os.rename(files[i], newFilename)
+                rename(files[i], (newFilename + r'.wpl'))
     elif (files[i].endswith(r'.cue')):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
@@ -931,9 +929,7 @@ for i in range(0, len(files)):
                 artist = re.findall('\nPERFORMER \x22(.*)\x22', content)
                 if ((len(artist) > 0) and (len(artist[0]) > 0)):
                     title = artist[0] + r' - ' + title
-            newFilename = _normalized(title) + r'.cue'
-            newFilename = os.path.join(os.path.split(files[i])[0], newFilename)
-            os.rename(files[i], newFilename)
+            rename(files[i], (_normalized(title) + r'.cue'))
     else:
         buffer.append(files[i])
 files = buffer
@@ -942,14 +938,12 @@ files = buffer
 
 # SOME VERBOSITY
 
-if (done == 1):
-    print('\r1 file analyzed' + (r' ' * 50) + ('\b' * 50))
-else:
-    print('\r' + str(done) + ' files analyzed' + (r' ' * 20) + ('\b' * 20))
-if (removedJunkFiles == 1):
-    print('1 junk file removed')
-else:
-    print(str(removedJunkFiles) + ' junk files removed')
+if (done == 1): print('\r1 file analyzed' + (r' ' * 50) + ('\b' * 50))
+else: print('\r' + _num(done) + ' files analyzed' + (r' ' * 20) + ('\b' * 20))
+if (renamedFiles == 1): print('1 file renamed')
+else: print(_num(renamedFiles) + ' files renamed')
+if (removedJunkFiles == 1): print('1 junk file removed')
+else: print(_num(removedJunkFiles) + ' junk files removed')
 
 
 
@@ -1050,8 +1044,6 @@ for path, subdirs, items in os.walk(targetRootDir):
 # SOME VERBOSITY
 
 if (not option_keepDirStructure):
-    if (done == 1):
-        print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
-    else:
-        print('\r' + str(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
+    if (done == 1): print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
+    else: print('\r' + _num(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
 print('Done!')
