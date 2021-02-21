@@ -337,6 +337,7 @@ for arg in sys.argv:
     if (os.path.isdir(arg)):
         if (targetRootDir is None): targetRootDir = arg
         else: error("More than one path passed as argument", 2)
+
 if (r'-Q' in sys.argv): # Not-so-verbose mode (no progress output)
     def progress( message, done, total ): pass
 if (r'-q' in sys.argv): # Quiet mode (no verbosity at all)
@@ -344,11 +345,16 @@ if (r'-q' in sys.argv): # Quiet mode (no verbosity at all)
     def print( *args ): pass
     def _unmute(): sys.stderr = sys.__stderr__
     sys.stdout = open(os.devnull, r'w')
+
+removedJunkFiles = 0
 option_removeKnownJunk = r'-J' not in sys.argv # Do not remove junk files
 if (r'-J' in sys.argv):
     def removeJunkFile( filePath ): pass
 else:
-    def removeJunkFile( filePath ): os.remove(filePath)
+    def removeJunkFile( filePath ):
+        os.remove(filePath)
+        removedJunkFiles += 1
+
 option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
 option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
 
@@ -379,7 +385,10 @@ if (files[0][0] == 0):
         progress(r'Removing empty files...', (j - (j - i)), j)
         os.remove(files[i][2])
         files[i] = (0, r'', files[i][2])
-print('\r' + str(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
+if (j == 1):
+    print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
+else:
+    print('\r' + str(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -401,7 +410,10 @@ if (option_removeDuplicates):
                     files[j] = (0, r'', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
-    print('\r' + str(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
+    if (actuallyDeduped == 1):
+        print('\r1 duplicate removed' + (r' ' * 50) + ('\b' * 50))
+    else:
+        print('\r' + str(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
 
 
 
@@ -436,6 +448,8 @@ if (option_removeKnownJunk):
     files = removeFilesContaining(files, r'.c', b'\n#define _BOOST_')
     done = initialTotal - len(files)
     progress(r'Analyzing files...', done, initialTotal)
+
+    removedJunkFiles += done
 
 
 
@@ -851,6 +865,7 @@ for i in range(0, len(files)):
             gz = gzip.open(files[i], r'rb')
         except:
             removeJunkFile(files[i])
+            print (files[i] + " :: dead .gz")
     else:
         buffer.append(files[i])
 files = buffer
@@ -927,7 +942,14 @@ files = buffer
 
 # SOME VERBOSITY
 
-print('\r' + str(done) + ' files analyzed' + (r' ' * 20) + ('\b' * 20))
+if (done == 1):
+    print('\r1 file analyzed' + (r' ' * 50) + ('\b' * 50))
+else:
+    print('\r' + str(done) + ' files analyzed' + (r' ' * 20) + ('\b' * 20))
+if (removedJunkFiles == 1):
+    print('1 junk file removed')
+else:
+    print(str(removedJunkFiles) + ' junk files removed')
 
 
 
@@ -1028,5 +1050,8 @@ for path, subdirs, items in os.walk(targetRootDir):
 # SOME VERBOSITY
 
 if (not option_keepDirStructure):
-    print('\r' + str(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
+    if (done == 1):
+        print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
+    else:
+        print('\r' + str(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
 print('Done!')
