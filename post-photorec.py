@@ -257,6 +257,60 @@ def videoFilename( parsedInfo, currentName ):
     _unmute()
     return (final + os.path.splitext(currentName)[-1])
 
+def OLEDocumentFilename( currentName ):
+    try:
+        document = OLEFile(files[i])
+        documentMetadata = document.get_metadata()
+        document.close()
+        encoding = documentMetadata.codepage
+    except:
+        return os.path.split(currentName)[-1]
+    encoding = r'cp' + str(encoding if ((encoding is not None) and (encoding > 0)) else 1252)
+    author = r''
+    if ((documentMetadata.author is not None) and (len(documentMetadata.author) > 1)):
+        author = r' (' + documentMetadata.author.decode(encoding) + r')'
+    if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
+        title = _normalized(documentMetadata.title.decode(encoding))
+        return (_normalized(title + author) + os.path.splitext(files[i])[-1])
+    return os.path.split(currentName)[-1]
+
+def openXMLDocumentFilename( currentName ):
+    try:
+        document = ZIPFile(files[i], r'r')
+        XMLMetadataFile = document.open(r'docProps/core.xml')
+        parsedXML = _parsedXML(XMLMetadataFile)
+        if (parsedXML is None): return os.path.split(currentName)[-1]
+        field = parsedXML.find('//creator')
+        author = (r' (' + field.text + r')') if (field is not None) else r''
+        field = parsedXML.find('//title')
+        if ((field is not None) and (len(field.text) > 1)): title = field.text
+        else: return os.path.split(currentName)[-1]
+        XMLMetadataFile.close()
+        return (_normalized(title + author) + os.path.splitext(files[i])[-1])
+    except:
+        return os.path.split(currentName)[-1]
+
+def openDocumentFilename( currentName ):
+    try:
+        with open(currentName, r'rb') as document:
+            fileSignature = document.read(2)
+            document.seek(0)
+            if (fileSignature == b'<?'): parsedXML = _parsedXML(document)
+            else: fileSignature = None
+        if (fileSignature is None):
+            XMLMetadataFile = ZIPFile(currentName, r'r').open(r'meta.xml')
+            parsedXML = _parsedXML(XMLMetadataFile)
+        if (parsedXML is None): return os.path.split(currentName)[-1]
+        field = parsedXML.find(r'//initial-creator')
+        if (field is None): field = parsedXML.find(r'//creator')
+        author = (r' (' + field.text + r')') if (field is not None) else r''
+        field = parsedXML.find(r'//title')
+        if ((field is not None) and (len(field.text) > 1)): title = field.text
+        else: return os.path.split(currentName)[-1]
+        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
+    except:
+        return os.path.split(currentName)[-1]
+
 def fontFilename( currentName ):
     try: font = ttLib.TTFont(currentName)
     except: return os.path.split(currentName)[-1]
@@ -764,67 +818,34 @@ for i in range(0, len(files)):
 files = buffer
 
 oleFile = re.compile(r'^.+\.(doc|xls|ppt|ole)$')
-openxmlFile = re.compile(r'^.+\.(doc|xls|ppt)x$')
-odFile = re.compile(r'^.+\.f?od[gpst]$')
 buffer = []
 for i in range(0, len(files)):
     if (oleFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        try:
-            document = OLEFile(files[i])
-            documentMetadata = document.get_metadata()
-            document.close()
-        except:
-            continue
-        encoding = documentMetadata.codepage
-        encoding = documentMetadata.codepage if ((encoding is not None) and (encoding > 0)) else 1252
-        encoding = r'cp' + str(encoding)
-        author = r''
-        if ((documentMetadata.author is not None) and (len(documentMetadata.author) > 1)):
-            author = r' (' + documentMetadata.author.decode(encoding) + r')'
-        if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
-            title = _normalized(documentMetadata.title.decode(encoding))
-            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
-    elif (openxmlFile.match(files[i])):
+        rename(files[i], OLEDocumentFilename(files[i]))
+    else:
+        buffer.append(files[i])
+files = buffer
+
+openxmlFile = re.compile(r'^.+\.(doc|xls|ppt)x$')
+buffer = []
+for i in range(0, len(files)):
+    if (openxmlFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        try: document = ZIPFile(files[i], r'r')
-        except: continue
-        try:
-            XMLMetadataFile = document.open(r'docProps/core.xml')
-            parsedXML = _parsedXML(XMLMetadataFile)
-            if (parsedXML is None): continue
-            field = parsedXML.find('//creator')
-            author = (r' (' + field.text + r')') if (field is not None) else r''
-            field = parsedXML.find('//title')
-            if ((field is not None) and (len(field.text) > 1)): title = field.text
-            else: continue
-            XMLMetadataFile.close()
-            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
-        except:
-            pass
-    elif (odFile.match(files[i])):
+        rename(files[i], openXMLDocumentFilename(files[i]))
+    else:
+        buffer.append(files[i])
+files = buffer
+
+odFile = re.compile(r'^.+\.f?od[gpst]$')
+buffer = []
+for i in range(0, len(files)):
+    if (odFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        with open(files[i], r'rb') as document:
-            fileSignature = document.read(2)
-            document.seek(0)
-            if (fileSignature == b'<?'):
-                try: parsedXML = _parsedXML(document)
-                except: continue
-            else:
-                try: XMLMetadataFile = ZIPFile(files[i], r'r').open(r'meta.xml')
-                except: continue
-                parsedXML = _parsedXML(XMLMetadataFile)
-            if (parsedXML is None): continue
-            field = parsedXML.find(r'//initial-creator')
-            if (field is None): field = parsedXML.find(r'//creator')
-            author = (r' (' + field.text + r')') if (field is not None) else r''
-            field = parsedXML.find(r'//title')
-            if ((field is not None) and (len(field.text) > 1)): title = field.text
-            else: continue
-            rename(files[i], (_normalized(title + author) + os.path.splitext(files[i])[-1]))
+        rename(files[i], openDocumentFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
