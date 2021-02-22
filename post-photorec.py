@@ -140,6 +140,9 @@ def decodedFileContent( file ):
 
 def nonEXIFImageFilename( imageInfo, currentName ):
     date = imageInfo.get(r'Creation Time', r'').replace(r':', r'-')
+    isScreenshot = r'screenshot' in imageInfo.get(r'Software', r'').lower()
+    title = r''
+    author = r''
     return os.path.split(currentName)[-1]
 
 def imageFilename( image, currentName ):
@@ -166,6 +169,9 @@ def imageFilename( image, currentName ):
         cameraModel = re.sub(r'(\s+|\(.*?\))', r'', cameraModel) if (cameraModel is not None) else r''
     except:
         cameraModel = r''
+    if (len(cameraModel) == 0):
+        software = EXIF.get(305, EXIF.get(11, r'')).lower()
+        if (r'screenshot' in software): cameraModel = r'Screenshot from '
     try:
         date = EXIF.get(36867, EXIF.get(36868, EXIF.get(306, EXIF.get(29, r'')))).replace(r':', r'-')
     except:
@@ -348,7 +354,7 @@ def split( l, chunkMaxSize ):
 # DEFINING FILENAME REGEXES
 
 fontFile = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
-codeFile = r'^.*\.([CcHh](\+\+|pp)|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
+codeFile = r'^.*\.([CcHh](\+\+|pp)?|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
 codeFile += r'go|a(sp|d[bs])|c([bq]?l|lj[sc]?|ob(ra)?|py|yp)|li?sp|t(cl|bc)|j(ava|j)|(m|[eh]r)l|l?hs|'
 codeFile += r'[rv]b|vhdl?|exs?|dart|applescript|f(or|90)|boo|[jt]sx|va(la|pi)|GAMBAS|(lit)?coffee|'
 codeFile = re.compile(codeFile + 'fs([ix]|script)|jl|lua|mm|w?asm|hx(ml)?|g(v|roov)?y|w(l|at)|b(at|tm)|cmd)$')
@@ -386,6 +392,7 @@ if (not option_removeKnownJunk):
 
 option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
 option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
+option_photorecNamesOnly = r'-n' in sys.argv # Only rename/remove files with photorec-generated names
 
 
 
@@ -446,7 +453,11 @@ if (option_removeDuplicates):
 
 # STARTING TO PROCESS FILES
 
-files = sorted([file for size, ext, file in files if (size > 0)])
+if (option_photorecNamesOnly):
+    photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
+    files = sorted([file for size, ext, file in files if ((size > 0) and photorecName.match(file))])
+else:
+    files = sorted([file for size, ext, file in files if (size > 0)])
 sys.stdout.write(r'Analyzing files...')
 done = 0
 
@@ -496,8 +507,8 @@ for i in range(0, len(files)):
 
 # REMOVING UNSUPPORTED FILES FROM THE LIST
 
-unsupportedFormats = re.compile(r'^.*\.(d2s|sys|[ao]|json(lz4)?|class|m3u|pyc)$')
-files = [file for file in files if not unsupportedFormats.match(file)]
+unsupported = re.compile(r'^.*\.(d2s|sys|[ao]|json(lz4)?|class|m3u|pyc)$')
+files = [file for file in files if (not unsupported.match(file))]
 done = initialTotal - len(files)
 progress(r'Analyzing files...', done, initialTotal)
 
