@@ -445,9 +445,9 @@ if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
 
 option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
+option_keepEmptyFiles = r'-z' in sys.argv # Do not remove empty files
 option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
 option_photorecNamesOnly = r'-n' in sys.argv # Only rename/remove files with photorec-generated names
-
 
 
 
@@ -469,14 +469,15 @@ sys.stdout.write(r'Removing empty files...')
 files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
 files = sorted(files)
 j = 0
-if (files[0][0] == 0):
+if ((not option_keepEmptyFiles) and (files[0][0] == 0)):
     for i in range(0, len(files)):
         if (files[i][0] != 0): break
         j += 1
     for i in range(0, j):
         progress(r'Removing empty files...', (j - (j - i)), j)
         os.remove(files[i][2])
-        files[i] = (0, r'', files[i][2])
+    files = files[j:]
+    initialTotal -= j
 if (j == 1): print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
 else: print('\r' + _num(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
 
@@ -546,15 +547,16 @@ if (option_removeKnownJunk):
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-prenamedFile = r'^f[0-9]{5,}_(.*)[._](([DdRr][Ll][Ll]|[Ee][Xx][Ee])(_[Mm][Uu][Ii])?|'
-prenamedFile += r'[Dd]2[Ss]|[Zz][Ii][Pp]|[Ss][Yy][Ss]|'
-prenamedFile = re.compile(prenamedFile + '[Dd][Oo][Cc]|[Pp][Dd][Ff])$')
+prenamedFile = r'^f[0-9]{5,}_(.*)[._](([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
+prenamedFile += r'[Dd]2[Ss]|[Zz][Ii][Pp]|[Dd][Oo][Cc]|'
+prenamedFile = re.compile(prenamedFile + '[Pp][Dd][Ff])$')
 def fixedPhotoRecName( match ):
     return match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.')
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
     if (prenamedFile.match(filename)):
-        rename(files[i], prenamedFile.sub(fixedPhotoRecName, filename))
+        newFilename = prenamedFile.sub(fixedPhotoRecName, filename)
+        rename(files[i], newFilename)
         files[i] = newFilename
 
 
