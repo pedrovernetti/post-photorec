@@ -65,6 +65,22 @@ def _mute():
 
 
 
+# UTILITY FUNCTION
+
+def longestCommonPrefix( stringList ):
+    if (not stringList): return r''
+    shortest = min(stringList, key=len)
+    for i, currentChar in enumerate(shortest):
+        for other in stringList:
+            if (other[i] != currentChar): return shortest[:i]
+    return shortest
+
+def split( l, chunkMaxSize ):
+    for i in range(0, len(l), chunkMaxSize):
+        yield l[i:(i + chunkMaxSize)]
+
+
+
 # TEXT NORMALIZATION FUNCTION
 
 _ucats = {r'Cc', r'Cf', r'Co', r'Cs'}
@@ -89,7 +105,8 @@ def _normalized( stringOrStrings ):
         return [_normalized(string) for string in stringOrStrings]
     elif (isinstance(stringOrStrings, dict)):
         return dict((key, _normalized(string)) for key, string in stringOrStrings.items())
-    return re.sub(r'\s+', r' ', unormalize(r'NFC', stringOrStrings.translate(_table)).strip())
+    normalized = unormalize(r'NFC', stringOrStrings.translate(_table)).strip()
+    return re.sub(r'\s+', r' ', re.sub(r'^- ', r'', re.sub(r'( - )+', r' - ', normalized)))
 
 
 
@@ -397,14 +414,6 @@ def moveNotReplacing( file, toWhere ):
 
 
 
-# SPLIT FUNCTION
-
-def split( l, chunkMaxSize ):
-    for i in range(0, len(l), chunkMaxSize):
-        yield l[i:(i + chunkMaxSize)]
-
-
-
 # DEFINING FILENAME REGEXES
 
 fontFile = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
@@ -422,6 +431,8 @@ documentFile = re.compile(documentFile + r'e(nc|pub)|[a-z]?html?(\.gz)?|m(obi|d)
 audioFile = r'^.*\.(m(4[abp]|ka|p[+c123]|idi?)|w(ma|a?v)|flac|a(ac|c3|pe|u)|dts|oga|tta|gsm|'
 audioFile = re.compile(audioFile + r'ra|ofr|s(px|nd))$')
 
+photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
+
 
 
 # PROCESSING COMMAND LINE ARGUMENTS
@@ -431,6 +442,17 @@ for arg in sys.argv:
     if (os.path.isdir(arg)):
         if (targetRootDir is None): targetRootDir = arg
         else: error("More than one path passed as argument", 2)
+    elif (arg == '-r'):
+        waitingRBFList = True
+    elif (waitingRBFList):
+        waitingRBFList = False
+        if (commaSeparatedExtensions.match(arg)): junkExtensions += arg
+        else: error("Invalid file extensions list: '" + arg + "'", 2)
+
+junkExtensions = [ext for ext in junkExtensions.split(r',') if (len(ext) > 0)]
+junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ext in junkExtensions])
+if (junkExtensions == (r'.',)): junkExtensions = ()
+elif (len(junkExtensions) == 1): junkExtensions = junkExtensions[0]
 
 if (r'-Q' in sys.argv): # Not-so-verbose mode (no progress output)
     def progress( message, done, total ): pass
@@ -509,7 +531,6 @@ if (option_removeDuplicates):
 # STARTING TO PROCESS FILES
 
 if (option_photorecNamesOnly):
-    photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
     files = sorted([file for size, ext, file in files if ((size > 0) and photorecName.match(file))])
 else:
     files = sorted([file for size, ext, file in files if (size > 0)])
@@ -975,6 +996,27 @@ if (renamedFiles == 1): print('1 file renamed')
 else: print(_num(renamedFiles) + ' files renamed')
 if (removedJunkFiles == 1): print('1 junk file removed')
 else: print(_num(removedJunkFiles) + ' junk files removed')
+
+
+
+# REMOVING FILES BY EXTENSION (IF SPECIFIED)
+
+if (len(junkExtensions) > 0):
+    done = 0
+    if (option_photorecNamesOnly):
+        def isValidJunkByExtension( filename ):
+            return (filename.endswith(junkExtensions) and photorecName.match(filename))
+    else:
+        def isValidJunkByExtension( filename ):
+            return filename.endswith(junkExtensions)
+    for path, subdirs, items in os.walk(targetRootDir):
+        for name in items:
+            if (isValidJunkByExtension(name)):
+                done += 1
+                progress(r'Removing files by extension...', done, initialTotal)
+                removeJunkFile(os.path.join(path, name))
+    if (done == 1): print('\r1 file removed by extension' + (r' ' * 30) + ('\b' * 30))
+    else: print('\r' + _num(done) + ' files removed by extension' + (r' ' * 20) + ('\b' * 20))
 
 
 
