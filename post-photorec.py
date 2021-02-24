@@ -372,7 +372,7 @@ def torrentFilename( currentName ):
         path = currentName.rsplit(os.path.sep, 1)[0]
         return (_normalized(name[0]) + r'.torrent')
 
-windowsRegistryFile = re.compile(r'.*\.(dat|hve|reg)(\.tmp)?$', re.IGNORECASE)
+windowsRegistryFile = re.compile(r'.*\.(dat|hve|man|reg)(\.tmp)?$', re.IGNORECASE)
 def windowsRegistryFilename( currentName ):
     try:
         regName = b'\x00' * 64
@@ -390,7 +390,7 @@ def windowsRegistryFilename( currentName ):
             regName = regName[48:].decode(r'utf-16', r'ignore').strip('\x00?_- \n\\')
         if (len(regName) < 1): return os.path.split(currentName)[-1]
         if (not windowsRegistryFile.match(regName)): regName += r'.reg'
-        return _normalized(re.sub(r'^\\([A-Z]):\\', r'\1_', regName).replace('\\', r'_'))
+        return _normalized(re.sub(r'^([A-Z]):\\', r'\1_', regName).replace('\\', r'_'))
     except:
         return os.path.split(currentName)[-1]
 
@@ -398,41 +398,44 @@ def windowsRegistryFilename( currentName ):
 
 # SPECIAL FILE MANIPULATION FUNCTIONS
 
-renamedFiles = 0
-def rename( filePath, newName ):
-    if (len(newName) > 255):
-        extension = os.path.splitext(newName)[-1]
-        newName = newName[:(255 - len(extension))] + extension
-    try: os.rename(filePath, os.path.join(os.path.split(filePath)[0], newName))
-    except: return
-    global renamedFiles
-    renamedFiles += 1
-
 removedJunkFiles = 0
 def removeJunkFile( filePath ):
     os.remove(filePath)
     global removedJunkFiles
     removedJunkFiles += 1
 
-def moveNotReplacing( file, toWhere ):
-    newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
+def renameNotReplacing( file, newFilename ):
     if (file == newFilename): return
     try:
-        os.rename(file, newFilename)
-        return newFilename
-    except:
-        i = 2
-        name, ext = os.path.splitext(os.path.split(file)[-1])
-        name = os.path.join(toWhere, name.strip())
-        while True:
-            try:
+        if (not os.path.exists(newFilename)):
+            os.rename(file, newFilename)
+            return newFilename
+        else:
+            i = 2
+            name, ext = os.path.splitext(newFilename)
+            while True:
                 newFilename = name + r' (' + str(i) + r')' + ext
-                os.rename(file, newFilename)
-                return newFilename
-            except FileExistsError:
-                i += 1
-            except:
-                return file
+                if (not os.path.exists(newFilename)):
+                    os.rename(file, newFilename)
+                    return newFilename
+                else:
+                    i += 1
+    except:
+        return
+
+def moveNotReplacing( file, toWhere ):
+    newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
+    return renameNotReplacing(file, newFilename)
+
+renamedFiles = 0
+def rename( filePath, newName ):
+    if (len(newName) > 255):
+        extension = os.path.splitext(newName)[-1]
+        newName = newName[:(255 - len(extension))] + extension
+    try: renameNotReplacing(filePath, os.path.join(os.path.split(filePath)[0], newName))
+    except: return
+    global renamedFiles
+    renamedFiles += 1
 
 
 
