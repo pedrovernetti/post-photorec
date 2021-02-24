@@ -459,6 +459,10 @@ photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 
 # PROCESSING COMMAND LINE ARGUMENTS
 
+junkExtensions = r''
+waitingRBFList = False
+commaSeparatedExtensions = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9.+-]*(,[a-zA-Z0-9][a-zA-Z0-9.+-]*)*')
+
 targetRootDir = None
 for arg in sys.argv:
     if (os.path.isdir(arg)):
