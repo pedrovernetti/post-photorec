@@ -372,6 +372,28 @@ def torrentFilename( currentName ):
         path = currentName.rsplit(os.path.sep, 1)[0]
         return (_normalized(name[0]) + r'.torrent')
 
+windowsRegistryFile = re.compile(r'.*\.(dat|hve|reg)(\.tmp)?$', re.IGNORECASE)
+def windowsRegistryFilename( currentName ):
+    try:
+        regName = b'\x00' * 64
+        REGEDIT4 = False
+        with open(currentName, r'rb') as reg:
+            regName = reg.read(112)
+            if (regName[:8] == b'REGEDIT4'):
+                REGEDIT4 = True
+                reg.seek(0, 0)
+                regName = decodedFileContent(reg).strip()
+        if (REGEDIT4):
+            regName = [match[2:-2].rstrip(r']') for match in re.findall(r'\n\[[^\n]+\]\r?\n', regName)]
+            regName = longestCommonPrefix(regName)
+        else:
+            regName = regName[48:].decode(r'utf-16', r'ignore').strip('\x00?_- \n\\')
+        if (len(regName) < 1): return os.path.split(currentName)[-1]
+        if (not windowsRegistryFile.match(regName)): regName += r'.reg'
+        return _normalized(re.sub(r'^\\([A-Z]):\\', r'\1_', regName).replace('\\', r'_'))
+    except:
+        return os.path.split(currentName)[-1]
+
 
 
 # SPECIAL FILE MANIPULATION FUNCTIONS
@@ -982,6 +1004,20 @@ for i in range(0, len(files)):
                 if ((len(artist) > 0) and (len(artist[0]) > 0)):
                     title = artist[0] + r' - ' + title
             rename(files[i], (_normalized(title) + r'.cue'))
+    else:
+        buffer.append(files[i])
+files = buffer
+
+
+
+# NAMING WINDOWS REGISTRY FILES
+
+buffer = []
+for i in range(0, len(files)):
+    if (files[i].endswith(r'.reg')):
+        done += 1
+        progress(r'Analyzing files...', done, initialTotal)
+        rename(files[i], windowsRegistryFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
