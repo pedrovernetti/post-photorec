@@ -558,9 +558,22 @@ junkExtensions = r''
 waitingPhotoRecArg = False
 waitingRBFList = False
 for arg in sys.argv:
+    if (waitingPhotoRecArg):
+        waitingRBFList = False
+        if (arg.startswith(r'-')):
+            photoRecTarget = r'_'
+        elif (stat.S_ISBLK(os.stat(arg).st_mode) or
+            (os.path.isfile(arg) and ddImageFile.match(arg))):
+            photoRecTarget = arg
+            continue
+        else:
+            error("Invalid device or image: '" + arg + "'", 2)
     if (os.path.isdir(arg)):
         if (targetRootDir is None): targetRootDir = arg
         else: error("More than one path passed as argument", 2)
+    elif (arg == '-x'):
+        waitingPhotoRecArg = True
+        import stat, subprocess
     elif (arg == '-r'):
         waitingRBFList = True
     elif (waitingRBFList):
@@ -569,7 +582,26 @@ for arg in sys.argv:
         else: error("Invalid file extensions list: '" + arg + "'", 2)
 
 if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
-    error("No valid path specified", 2)
+    if (photoRecTarget):
+        try: os.mkdir(targetRootDir)
+        except: error("No valid path specified", 2)
+    else:
+        error("No valid path specified", 2)
+
+if (waitingRBFList): photoRecTarget = r'_'
+if (photoRecTarget):
+    if (photoRecTarget == r'_'): command = [r'photorec', '/d', targetRootDir]
+    else: command = [r'photorec', '/d', targetRootDir, photoRecTarget]
+    with subprocess.Popen(command) as photoRecProc:
+        photoRecProc.wait()
+        if (photoRecProc.returncode and (len(os.listdir(targetRootDir)) == 0)):
+            exit(photoRecProc.returncode)
+    sys.stdout.write('\n')
+    uid = int(os.environ.get(r'SUDO_UID', os.getuid()))
+    gid = int(os.environ.get(r'SUDO_GID', os.getgid()))
+    for path, subdirs, items in os.walk(targetRootDir):
+        for name in items: os.chown(os.path.join(path, name), uid, gid)
+        for name in subdirs: os.chown(os.path.join(path, name), uid, gid)
 
 junkExtensions = [ext for ext in junkExtensions.split(r',') if (len(ext) > 0)]
 junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ext in junkExtensions])
