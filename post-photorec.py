@@ -48,7 +48,7 @@ def helpMessage():
     message = """
 Usage: """ + command + """ [OPTIONS]... DIRECTORY_PATH [OPTIONS]...
 
-For a given directory containing unsorted and meaninglessly named files, removes
+For a given directory containing unsorted and meaninglessly-named files, removes
 the empty ones, deduplicates them, renames them more meaningfully, fixes
 some file extensions and organizes everything in a better directory structure.
 
