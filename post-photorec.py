@@ -56,6 +56,7 @@ some file extensions and organizes everything in a better directory structure.
  -D       Do not remove duplicate files
  -J       Do not remove junk files (well known to be usually unwanted)
  -k       Keep directory structure (do not move files)
+ -n       Only rename/remove files with photorec-generated names
  -Q       No real-time progress information
  -q       Quiet mode (no verbosity)
  -r EXTS  Removes files with the given (comma-separated) extension(s)
@@ -523,9 +524,9 @@ option_removeKnownJunk = r'-J' not in sys.argv # Do not remove junk files
 if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
 
-option_removeDuplicates = r'-D' not in sys.argv # Do not remove duplicate files
-option_keepEmptyFiles = r'-z' in sys.argv # Do not remove empty files
-option_keepDirStructure = r'-k' in sys.argv # Keep Directory Structure
+option_removeDuplicates = r'-D' not in sys.argv
+option_keepEmptyFiles = r'-z' in sys.argv
+option_keepDirStructure = r'-k' in sys.argv
 option_photorecNamesOnly = r'-n' in sys.argv # Only rename/remove files with photorec-generated names
 
 
