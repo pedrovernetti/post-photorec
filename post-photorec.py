@@ -77,7 +77,7 @@ def error( message, whatToReturn ):
 
 def progress( message, done, total ):
     progressLen = (len(str(total)) * 2) + 1
-    p = str(done) + r'/' + str(total)
+    p = '\x1B[2m' + str(done) + r'/' + str(total) + '\x1B[0m'
     sys.stdout.write('\r' + message + r' ' + p.ljust(progressLen) + ('\b' * (progressLen - len(p))))
 
 def _num( x ):
@@ -608,22 +608,22 @@ junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ex
 if (junkExtensions == (r'.',)): junkExtensions = ()
 elif (len(junkExtensions) == 1): junkExtensions = junkExtensions[0]
 
-if (r'-Q' in sys.argv): # Not-so-verbose mode (no progress output)
+if (r'-Q' in sys.argv):
     def progress( message, done, total ): pass
-if (r'-q' in sys.argv): # Quiet mode (no verbosity at all)
+if (r'-q' in sys.argv):
     def progress( message, done, total ): pass
     def print( *args ): pass
     def _unmute(): sys.stderr = sys.__stderr__
     sys.stdout = open(os.devnull, r'w')
 
-option_removeKnownJunk = r'-J' not in sys.argv # Do not remove junk files
+option_removeKnownJunk = r'-J' not in sys.argv
 if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
 
 option_removeDuplicates = r'-D' not in sys.argv
 option_keepEmptyFiles = r'-z' in sys.argv
 option_keepDirStructure = r'-k' in sys.argv
-option_photorecNamesOnly = r'-n' in sys.argv # Only rename/remove files with photorec-generated names
+option_photorecNamesOnly = r'-n' in sys.argv
 
 
 
