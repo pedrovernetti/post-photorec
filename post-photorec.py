@@ -43,6 +43,28 @@ from fontTools import ttLib
 
 # VERBOSITY FUNCTIONS
 
+def helpMessage():
+    command = os.path.split(sys.argv[0])[-1]
+    message = "\nUsage: " + command + " [OPTIONS...] PATH [OPTIONS...]\n"
+    message += """
+Removes empty files, deduplicates files, renames them more meaningfully, fixes
+some file extensions and organizes everything in a better directory structure.
+
+ Options:
+
+ -h       Displays this help message and exits
+ -D       Do not remove duplicate files
+ -J       Do not remove junk files (well known to be usually unwanted)
+ -k       Keep directory structure (do not move files)
+ -Q       No real-time progress information
+ -q       Quiet mode (no verbosity)
+ -r EXTS  Remove files with the given (comma-separated) extension(s)
+ -z       Do not remove empty (0B) files
+
+"""
+    sys.__stdout__.write(message)
+    exit(0)
+
 def error( message, whatToReturn ):
     sys.stderr.write('\x1B[31;1mError: ' + message + '\n')
     exit(whatToReturn)
@@ -462,6 +484,9 @@ photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 
 # PROCESSING COMMAND LINE ARGUMENTS
 
+if (r'-h' in sys.argv):
+    helpMessage()
+
 junkExtensions = r''
 waitingRBFList = False
 commaSeparatedExtensions = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9.+-]*(,[a-zA-Z0-9][a-zA-Z0-9.+-]*)*')
@@ -477,6 +502,9 @@ for arg in sys.argv:
         waitingRBFList = False
         if (commaSeparatedExtensions.match(arg)): junkExtensions += arg
         else: error("Invalid file extensions list: '" + arg + "'", 2)
+
+if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
+    error("No path specified", 2)
 
 junkExtensions = [ext for ext in junkExtensions.split(r',') if (len(ext) > 0)]
 junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ext in junkExtensions])
