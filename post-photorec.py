@@ -56,16 +56,16 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
 
  Options:
 
-  -h       Displays this help message and exits
-  -D       Do not remove duplicate files
-  -J       Do not remove junk files (well known to be usually unwanted)
-  -k       Keep directory structure (do not move files)
-  -n       Only rename/remove files with photorec-generated names
-  -Q       No real-time progress information
-  -q       Quiet mode (no verbosity)
-  -r EXTS  Removes files with any of the given (comma-separated) extension(s)
-  -x DEV   Runs PhotoRec on DEV (device or image path) before anything else
-  -z       Do not remove empty (0B) files
+  -h        Displays this help message and exits
+  -D        Do not remove duplicate files
+  -J        Do not remove junk files (well known to be usually unwanted)
+  -k        Keep directory structure (do not move files)
+  -n        Only rename/remove files with photorec-generated names
+  -Q        No real-time progress information
+  -q        Quiet mode (no verbosity)
+  -r EXTS   Removes files with any of the given (comma-separated) extension(s)
+  -x [DEV]  Runs PhotoRec on DEV (device or image path) before anything else
+  -z        Do not remove empty (0B) files
 
 """
     sys.__stdout__.write(message)
