@@ -288,18 +288,28 @@ def videoFilename( parsedInfo, currentName ):
     elif (parsedInfo.tracks[0].writer is not None): artist = parsedInfo.tracks[0].writer + r' - '
     else: artist = r''
     final = _normalized(artist + title + res)
-    if ((len(artist) + len(title)) == 0):
-        if (currentName.endswith(res + os.path.splitext(currentName)[-1])):
-            _unmute()
-            return os.path.split(currentName)[-1]
-        final = currentName.rsplit(os.path.sep, 1)[-1]
-        final = _normalized(final.rsplit(r'.', 1)[0] + res)
-    if (len(final) <= 1):
-        _unmute()
-        return os.path.split(currentName)[-1]
-    path = currentName.rsplit(os.path.sep, 1)[0]
     _unmute()
-    return (final + os.path.splitext(currentName)[-1])
+    if ((len(artist) + len(title)) == 0):
+        final = os.path.split(os.path.splitext(currentName)[0])[-1]
+        final = _normalized(re.sub((r'( ?\[([0-9]{3,4}p|[48][Kk])\])+'), r'', final) + res)
+    if (len(final) <= 1): return os.path.split(currentName)[-1]
+    else: return (final + os.path.splitext(currentName)[-1])
+
+def PDFFilename( currentName ):
+    try:
+        document = PDFFile(currentName, strict=False)
+        if (document.isEncrypted): return os.path.split(currentName)[-1]
+        info = document.documentInfo
+        if (info is None): return os.path.split(currentName)[-1]
+        author = info.get(r'/Author', r'')
+        if (isinstance(author, PDFIndirectObject)): author = document.getObject(author)
+        author = (author + r' - ') if (author is not None) else r''
+        title = info.get(r'/Title', r'')
+        if (isinstance(title, PDFIndirectObject)): title = document.getObject(title)
+        if ((title is None) or (len(title) <= 1)): return os.path.split(currentName)[-1]
+        return (_normalized(author + title) + r'.pdf')
+    except:
+        return os.path.split(currentName)[-1]
 
 def OLEDocumentFilename( currentName ):
     try:
@@ -355,6 +365,19 @@ def openDocumentFilename( currentName ):
     except:
         return os.path.split(currentName)[-1]
 
+def HTMLFilename( currentName ):
+    try: xml = html.parse(currentName)
+    except: return os.path.split(currentName)[-1]
+    title = xml.find(r'.//title')
+    if (title is None):
+        title = xml.find(r'.//meta[@name="title"]')
+        if (title is None): title = xml.find(r'.//meta[@property="og:title"]')
+        if (title is None): title = xml.find(r'.//meta[@name="parsely-title"]')
+        if (title is None): title = xml.find(r'.//name')
+    if (title is not None): title = title.text
+    else: return os.path.split(currentName)[-1]
+    return (_normalized(title) + os.path.splitext(currentName)[-1])
+
 def fontFilename( currentName ):
     try: font = ttLib.TTFont(currentName)
     except: return os.path.split(currentName)[-1]
@@ -399,6 +422,25 @@ def torrentFilename( currentName ):
         path = currentName.rsplit(os.path.sep, 1)[0]
         return (_normalized(name[0]) + r'.torrent')
 
+def cueSheetFilename( currentName ):
+    title = None
+    try:
+        with open(files[i], r'rb') as f:
+            content = decodedFileContent(f)
+            title = re.findall('\nTITLE \x22(.*)\x22', content)
+            if ((len(title) == 0) or (len(title[0]) == 0)):
+                title = re.findall('\nFILE \x22(.*)\.[a-zA-Z0-9+]{1,4}\x22', content)
+                if ((len(title) > 0) and (len(title[0]) > 0)): title = title[0]
+            else:
+                title = title[0]
+                artist = re.findall('\nPERFORMER \x22(.*)\x22', content)
+                if ((len(artist) > 0) and (len(artist[0]) > 0)):
+                    title = artist[0] + r' - ' + title
+    except:
+        pass
+    if (title is None): return os.path.split(currentName)[-1]
+    else: return (_normalized(title) + r'.cue')
+
 windowsRegistryFile = re.compile(r'.*\.(dat|hve|man|reg)(\.tmp)?$', re.IGNORECASE)
 def windowsRegistryFilename( currentName ):
     try:
@@ -427,7 +469,8 @@ def windowsRegistryFilename( currentName ):
 
 removedJunkFiles = 0
 def removeJunkFile( filePath ):
-    os.remove(filePath)
+    try: os.remove(filePath)
+    except FileNotFoundError: pass
     global removedJunkFiles
     removedJunkFiles += 1
 
@@ -509,7 +552,7 @@ for arg in sys.argv:
         else: error("Invalid file extensions list: '" + arg + "'", 2)
 
 if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
-    error("No path specified", 2)
+    error("No valid path specified", 2)
 
 junkExtensions = [ext for ext in junkExtensions.split(r',') if (len(ext) > 0)]
 junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ext in junkExtensions])
@@ -559,7 +602,8 @@ if ((not option_keepEmptyFiles) and (files[0][0] == 0)):
         j += 1
     for i in range(0, j):
         progress(r'Removing empty files...', (j - (j - i)), j)
-        os.remove(files[i][2])
+        try: os.remove(files[i][2])
+        except FileNotFoundError: pass
     files = files[j:]
     initialTotal -= j
 if (j == 1): print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
@@ -581,7 +625,8 @@ if (option_removeDuplicates):
                 if (filecmp.cmp(files[i][2], files[j][2], shallow=False)):
                     actuallyDeduped += 1
                     progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
-                    os.remove(files[j][2])
+                    try: os.remove(files[j][2])
+                    except FileNotFoundError: pass
                     files[j] = (0, r'', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
@@ -606,7 +651,7 @@ done = 0
 if (option_removeKnownJunk):
     for file in files:
         if (file.endswith(r'.pyc')):
-            os.remove(file)
+            removeJunkFile(file)
             done += 1
         progress(r'Analyzing files...', done, initialTotal)
     files = [file for file in files if (not file.endswith(r'pyc'))]
@@ -941,17 +986,7 @@ for i in range(0, len(files)):
     if (htmlFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        try: xml = html.parse(files[i])
-        except: continue
-        title = xml.find(r'.//title')
-        if (title is None):
-            title = xml.find(r'.//meta[@name="title"]')
-            if (title is None): title = xml.find(r'.//meta[@property="og:title"]')
-            if (title is None): title = xml.find(r'.//meta[@name="parsely-title"]')
-            if (title is None): title = xml.find(r'.//name')
-        if (title is not None): title = title.text
-        else: continue
-        rename(files[i], (_normalized(title) + os.path.splitext(files[i])[-1]))
+        rename(files[i], HTMLFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -1028,22 +1063,16 @@ for i in range(0, len(files)):
             if ((len(title) > 0) and (len(title[0]) > 0)):
                 newFilename = _normalized(re.sub(r'<title>(.*)</title>', r'\1', title[0]))
                 rename(files[i], (newFilename + r'.wpl'))
-    elif (files[i].endswith(r'.cue')):
+    else:
+        buffer.append(files[i])
+files = buffer
+
+buffer = []
+for i in range(0, len(files)):
+    if (files[i].endswith(r'.cue')):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        with open(files[i], r'rb') as f:
-            content = decodedFileContent(f)
-            title = re.findall('\nTITLE \x22(.*)\x22', content)
-            if ((len(title) == 0) or (len(title[0]) == 0)):
-                title = re.findall('\nFILE \x22(.*)\.[a-zA-Z0-9+]{1,4}\x22', content)
-                if ((len(title) == 0) or (len(title[0]) == 0)): continue
-                else: title = title[0]
-            else:
-                title = title[0]
-                artist = re.findall('\nPERFORMER \x22(.*)\x22', content)
-                if ((len(artist) > 0) and (len(artist[0]) > 0)):
-                    title = artist[0] + r' - ' + title
-            rename(files[i], (_normalized(title) + r'.cue'))
+        rename(files[i], cueSheetFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
