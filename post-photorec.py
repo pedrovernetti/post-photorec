@@ -45,22 +45,26 @@ from fontTools import ttLib
 
 def helpMessage():
     command = os.path.split(sys.argv[0])[-1]
-    message = "\nUsage: " + command + " [OPTIONS] PATH [OPTIONS]\n"
-    message += """
-Removes empty files, deduplicates files, renames them more meaningfully, fixes
+    message = """
+Usage: """ + command + """ [OPTIONS]... DIRECTORY_PATH [OPTIONS]...
+
+For a given directory containing unsorted and meaninglessly named files, removes
+the empty ones, deduplicates them, renames them more meaningfully, fixes
 some file extensions and organizes everything in a better directory structure.
+
+Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
 
  Options:
 
- -h       Displays this help message and exits
- -D       Do not remove duplicate files
- -J       Do not remove junk files (well known to be usually unwanted)
- -k       Keep directory structure (do not move files)
- -n       Only rename/remove files with photorec-generated names
- -Q       No real-time progress information
- -q       Quiet mode (no verbosity)
- -r EXTS  Removes files with the given (comma-separated) extension(s)
- -z       Do not remove empty (0B) files
+  -h       Displays this help message and exits
+  -D       Do not remove duplicate files
+  -J       Do not remove junk files (well known to be usually unwanted)
+  -k       Keep directory structure (do not move files)
+  -n       Only rename/remove files with photorec-generated names
+  -Q       No real-time progress information
+  -q       Quiet mode (no verbosity)
+  -r EXTS  Removes files with any of the given (comma-separated) extension(s)
+  -z       Do not remove empty (0B) files
 
 """
     sys.__stdout__.write(message)
