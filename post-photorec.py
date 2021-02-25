@@ -25,7 +25,7 @@
 #
 # =============================================================================================
 
-import sys, os, re, mmap, codecs, json, gzip, filecmp
+import sys, os, stat, re, mmap, codecs, json, gzip, filecmp
 from unicodedata import category as ucategory, normalize as unormalize
 from zipfile import ZipFile as ZIPFile
 
@@ -64,6 +64,7 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
   -Q       No real-time progress information
   -q       Quiet mode (no verbosity)
   -r EXTS  Removes files with any of the given (comma-separated) extension(s)
+  -x DEV   Runs PhotoRec on DEV (device or image path) before anything else
   -z       Do not remove empty (0B) files
 
 """
@@ -189,18 +190,20 @@ def nonEXIFImageFilename( imageInfo, currentName ):
     author = r''
     return os.path.split(currentName)[-1]
 
-def imageFilename( image, currentName ):
+def imageFilename( currentName ):
     _mute()
+    try: image = Image.open(files[i], r'r')
+    except: return os.path.split(currentName)[-1]
     try: EXIF = image._getexif()
     except: EXIF = None
-    if ((EXIF is None) or (len(EXIF) < 1)):
+    if (not EXIF):
         try:
             image.load()
             EXIF = image.info.get(r'exif', None)
         except:
             _unmute()
             return os.path.split(currentName)[-1]
-        if ((EXIF is None) or (len(EXIF) < 1)):
+        if (not EXIF):
             newFilename = nonEXIFImageFilename(image.info, currentName)
             image.close()
             _unmute()
@@ -232,7 +235,7 @@ def imageFilename( image, currentName ):
             if (isinstance(title, bytes)): title = title.decode(r'utf-8', r'ignore')
         except:
             title = None
-        if ((title is None) or (len(title) < 2)): return os.path.split(currentName)[-1]
+        if (not title): return os.path.split(currentName)[-1]
         return _normalized(author + title + os.path.splitext(currentName)[-1])
     else:
         _unmute()
@@ -292,7 +295,7 @@ def videoFilename( parsedInfo, currentName ):
     if ((len(artist) + len(title)) == 0):
         final = os.path.split(os.path.splitext(currentName)[0])[-1]
         final = _normalized(re.sub((r'( ?\[([0-9]{3,4}p|[48][Kk])\])+'), r'', final) + res)
-    if (len(final) <= 1): return os.path.split(currentName)[-1]
+    if (not final): return os.path.split(currentName)[-1]
     else: return (final + os.path.splitext(currentName)[-1])
 
 def PDFFilename( currentName ):
@@ -306,7 +309,7 @@ def PDFFilename( currentName ):
         author = (author + r' - ') if (author is not None) else r''
         title = info.get(r'/Title', r'')
         if (isinstance(title, PDFIndirectObject)): title = document.getObject(title)
-        if ((title is None) or (len(title) <= 1)): return os.path.split(currentName)[-1]
+        if (not title): return os.path.split(currentName)[-1]
         return (_normalized(author + title) + r'.pdf')
     except:
         return os.path.split(currentName)[-1]
@@ -356,7 +359,7 @@ def openDocumentFilename( currentName ):
             parsedXML = _parsedXML(XMLMetadataFile)
         if (parsedXML is None): return os.path.split(currentName)[-1]
         field = parsedXML.find(r'//initial-creator')
-        if (field is None): field = parsedXML.find(r'//creator')
+        if (not field): field = parsedXML.find(r'//creator')
         author = (r' (' + field.text + r')') if (field is not None) else r''
         field = parsedXML.find(r'//title')
         if ((field is not None) and (len(field.text) > 1)): title = field.text
@@ -416,11 +419,24 @@ def torrentFilename( currentName ):
             encoding = r'utf-8'
         content = content.decode(encoding, r'ignore')
         name = re.findall(r'4:name([0-9]+):', content)
-        if (len(name) == 0): return os.path.split(currentName)[-1]
+        if (not name): return os.path.split(currentName)[-1]
         name = re.findall(r'4:name' + name[0] + ':(.{' + name[0] + '})', content)
-        if (len(name) == 0): return os.path.split(currentName)[-1]
+        if (not name): return os.path.split(currentName)[-1]
         path = currentName.rsplit(os.path.sep, 1)[0]
         return (_normalized(name[0]) + r'.torrent')
+
+windowsPlaylistTitle = re.compile(r'<title>(.*)</title>')
+def windowsPlaylistFilename( currentName ):
+    title = None
+    try:
+        with open(currentName, r'rb') as f:
+            title = windowsPlaylistTitle.findall(decodedFileContent(f))
+            if ((len(title) > 0) and (len(title[0]) > 0)):
+                title = windowsPlaylistTitle.sub(r'\1', title[0])
+    except:
+        pass
+    if (not title): return os.path.split(currentName)[-1]
+    else: return (_normalized(title) + r'.wpl')
 
 def cueSheetFilename( currentName ):
     title = None
@@ -438,7 +454,7 @@ def cueSheetFilename( currentName ):
                     title = artist[0] + r' - ' + title
     except:
         pass
-    if (title is None): return os.path.split(currentName)[-1]
+    if (not title): return os.path.split(currentName)[-1]
     else: return (_normalized(title) + r'.cue')
 
 windowsRegistryFile = re.compile(r'.*\.(dat|hve|man|reg)(\.tmp)?$', re.IGNORECASE)
@@ -535,11 +551,12 @@ photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 if (r'-h' in sys.argv):
     helpMessage()
 
-junkExtensions = r''
-waitingRBFList = False
-commaSeparatedExtensions = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9.+-]*(,[a-zA-Z0-9][a-zA-Z0-9.+-]*)*')
-
 targetRootDir = None
+photoRecTarget = None
+commaSeparatedExtensions = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9.+-]*(,[a-zA-Z0-9][a-zA-Z0-9.+-]*)*')
+junkExtensions = r''
+waitingPhotoRecArg = False
+waitingRBFList = False
 for arg in sys.argv:
     if (os.path.isdir(arg)):
         if (targetRootDir is None): targetRootDir = arg
@@ -630,6 +647,7 @@ if (option_removeDuplicates):
                     files[j] = (0, r'', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
+    initialTotal -= actuallyDeduped
     if (actuallyDeduped == 1): print('\r1 duplicate removed' + (r' ' * 50) + ('\b' * 50))
     else: print('\r' + _num(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
 
@@ -651,7 +669,7 @@ done = 0
 if (option_removeKnownJunk):
     for file in files:
         if (file.endswith(r'.pyc')):
-            removeJunkFile(file)
+            os.remove(file)
             done += 1
         progress(r'Analyzing files...', done, initialTotal)
     files = [file for file in files if (not file.endswith(r'pyc'))]
@@ -675,17 +693,24 @@ if (option_removeKnownJunk):
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-prenamedFile = r'^f[0-9]{5,}_(.*)[._](([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
+prenamedFile = r'^f[0-9]{5,}_([^_].*)[._]'
+prenamedFile += r'(([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
 prenamedFile += r'[Dd]2[Ss]|[Zz][Ii][Pp]|[Dd][Oo][Cc]|'
 prenamedFile = re.compile(prenamedFile + '[Pp][Dd][Ff])$')
 def fixedPhotoRecName( match ):
     return match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.')
+buffer = []
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
     if (prenamedFile.match(filename)):
         newFilename = prenamedFile.sub(fixedPhotoRecName, filename)
+        done += 1
+        progress(r'Analyzing files...', done, initialTotal)
         rename(files[i], newFilename)
         files[i] = newFilename
+    else:
+        buffer.append(files[i])
+files = buffer
 
 
 
@@ -851,11 +876,7 @@ for i in range(0, len(files)):
     if (pictureFile.match(files[i])):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        try:
-            image = Image.open(files[i], r'r')
-            rename(files[i], imageFilename(image, files[i]))
-        except:
-            continue
+        rename(files[i], imageFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
@@ -1058,11 +1079,7 @@ for i in range(0, len(files)):
     if (files[i].endswith(r'.wpl')):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        with open(files[i], r'rb') as f:
-            title = re.findall(r'<title>.*</title>', decodedFileContent(f))
-            if ((len(title) > 0) and (len(title[0]) > 0)):
-                newFilename = _normalized(re.sub(r'<title>(.*)</title>', r'\1', title[0]))
-                rename(files[i], (newFilename + r'.wpl'))
+        rename(files[i], windowsPlaylistFilename(files[i]))
     else:
         buffer.append(files[i])
 files = buffer
