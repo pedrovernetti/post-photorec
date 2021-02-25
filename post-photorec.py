@@ -527,6 +527,8 @@ def rename( filePath, newName ):
 
 # DEFINING FILENAME REGEXES
 
+ddImageFile = re.compile(r'^.*\.(dd|e01|im[ag]|bin)$')
+
 fontFile = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
 codeFile = r'^.*\.([CcHh](\+\+|pp)?|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
 codeFile += r'go|a(sp|d[bs])|c([bq]?l|lj[sc]?|ob(ra)?|py|yp)|li?sp|t(cl|bc)|j(ava|j)|(m|[eh]r)l|l?hs|'
@@ -590,13 +592,18 @@ if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
 
 if (waitingRBFList): photoRecTarget = r'_'
 if (photoRecTarget):
-    if (photoRecTarget == r'_'): command = [r'photorec', '/d', targetRootDir]
-    else: command = [r'photorec', '/d', targetRootDir, photoRecTarget]
-    with subprocess.Popen(command) as photoRecProc:
-        photoRecProc.wait()
-        if (photoRecProc.returncode and (len(os.listdir(targetRootDir)) == 0)):
-            exit(photoRecProc.returncode)
-    sys.stdout.write('\n')
+    if (os.getuid() != 0):
+        error("The current user does not have some needed permissions", 1)
+    if (photoRecTarget == r'_'): command = [r'photorec', r'/log', r'/d', targetRootDir]
+    else: command = [r'photorec', r'/log', r'/d', targetRootDir, photoRecTarget]
+    try:
+        with subprocess.Popen(command) as photoRecProc:
+            photoRecProc.wait()
+            if (photoRecProc.returncode and (len(os.listdir(targetRootDir)) == 0)):
+                error("Could not run PhotoRec", photoRecProc.returncode)
+        sys.stdout.write('\n')
+    except OSError:
+        error("Could not run PhotoRec", 1)
     uid = int(os.environ.get(r'SUDO_UID', os.getuid()))
     gid = int(os.environ.get(r'SUDO_GID', os.getgid()))
     for path, subdirs, items in os.walk(targetRootDir):
