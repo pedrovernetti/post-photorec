@@ -45,7 +45,7 @@ from fontTools import ttLib
 
 def helpMessage():
     command = os.path.split(sys.argv[0])[-1]
-    message = "\nUsage: " + command + " [OPTIONS...] PATH [OPTIONS...]\n"
+    message = "\nUsage: " + command + " [OPTIONS] PATH [OPTIONS]\n"
     message += """
 Removes empty files, deduplicates files, renames them more meaningfully, fixes
 some file extensions and organizes everything in a better directory structure.
@@ -58,7 +58,7 @@ some file extensions and organizes everything in a better directory structure.
  -k       Keep directory structure (do not move files)
  -Q       No real-time progress information
  -q       Quiet mode (no verbosity)
- -r EXTS  Remove files with the given (comma-separated) extension(s)
+ -r EXTS  Removes files with the given (comma-separated) extension(s)
  -z       Do not remove empty (0B) files
 
 """
