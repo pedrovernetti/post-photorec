@@ -410,18 +410,14 @@ def HTMLFilename( currentName ):
     return (_normalized(title) + os.path.splitext(currentName)[-1])
 
 def EPUBFilename( currentName ):
-    try: content = ZIPFile(currentName, r'r')
-    except: return os.path.split(currentName)[-1]
     try:
-        parsedXML = _parsedXML(content.open(r'content.opf'))
+        content = ZIPFile(currentName, r'r')
+        for component in sorted(content.namelist(), key=len):
+            if (component.endswith(r'.opf')):
+                parsedXML = _parsedXML(content.open(component))
+                break
     except:
-        try:
-            for component in sorted(content.namelist(), key=len):
-                if (component.endswith(r'.opf')):
-                    parsedXML = _parsedXML(content.open(component))
-                    break
-        except:
-            parsedXML = None
+        parsedXML = None
     if (parsedXML is not None):
         title = parsedXML.find('//title')
         if ((title is not None) and (len(title.text))):
