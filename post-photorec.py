@@ -1197,7 +1197,7 @@ if (not option_keepDirStructure):
     if (done < maxFilesPerDir):
         sys.stdout.write('\r' + (r' ' * 75) + '\r')
     else:
-        sys.stdout.write('\r' + _num(done) + ' files split into ' _num(j) + ' subdirectories')
+        sys.stdout.write('\r' + _num(done) + ' files split into ' + _num(j) + ' subdirectories')
         print((r' ' * 20) + ('\b' * 20))
 
 
