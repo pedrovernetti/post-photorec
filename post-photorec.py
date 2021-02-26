@@ -192,6 +192,7 @@ def nonEXIFImageFilename( currentName, imageInfo ):
     return os.path.split(currentName)[-1]
 
 def imageFilename( currentName ):
+    _mute()
     try: image = Image.open(currentName, r'r')
     except: return os.path.split(currentName)[-1]
     try: EXIF = image._getexif()
@@ -199,7 +200,7 @@ def imageFilename( currentName ):
     if (not EXIF):
         try:
             image.load()
-            EXIF = image.info.get(r'exif', None)
+            EXIF = image.info.get(r'exif', None) #TODO: must parse it into a dict()
         except:
             _unmute()
             return os.path.split(currentName)[-1]
@@ -217,7 +218,8 @@ def imageFilename( currentName ):
     except:
         cameraModel = r''
     if (len(cameraModel) == 0):
-        software = EXIF.get(305, EXIF.get(11, r'')).lower()
+        try: software = EXIF.get(305, EXIF.get(11, r'')).lower()
+        except: software = r''
         if (r'screenshot' in software): cameraModel = r'Screenshot from '
     try:
         date = EXIF.get(36867, EXIF.get(36868, EXIF.get(306, EXIF.get(29, r'')))).replace(r':', r'-')
@@ -518,7 +520,7 @@ def removeJunkFile( filePath ):
     removedJunkFiles += 1
 
 def renameNotReplacing( file, newFilename ):
-    if (file == newFilename): return
+    if (file == newFilename): return file
     try:
         if (not os.path.exists(newFilename)):
             os.rename(file, newFilename)
@@ -534,21 +536,22 @@ def renameNotReplacing( file, newFilename ):
                 else:
                     i += 1
     except:
-        return
+        return file
 
 def moveNotReplacing( file, toWhere ):
     newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
     return renameNotReplacing(file, newFilename)
 
 renamedFiles = 0
-def rename( filePath, newName ):
+def rename( filePath, newName, count=False ):
     if (len(newName) > 255):
         extension = os.path.splitext(newName)[-1]
         newName = newName[:(255 - len(extension))] + extension
-    try: renameNotReplacing(filePath, os.path.join(os.path.split(filePath)[0], newName))
+    newName = os.path.join(os.path.split(filePath)[0], newName)
+    try: newPath = renameNotReplacing(filePath, newName)
     except: return
     global renamedFiles
-    renamedFiles += 1
+    if (count): renamedFiles += int(filePath != newPath)
 
 
 
@@ -567,7 +570,7 @@ def renamingLoop( files, target, filenameFunction ):
         if (isTarget(files[i])):
             done += 1
             progress(r'Analyzing files...', done, initialTotal)
-            rename(files[i], filenameFunction(files[i]))
+            rename(files[i], filenameFunction(files[i]), count=True)
         else:
             buffer.append(files[i])
     return buffer
@@ -814,11 +817,11 @@ for i in range(0, len(files)):
     if (prenamedFile1.match(filename)):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], prenamedFile1.sub(fixedPhotoRecName1, filename))
+        rename(files[i], prenamedFile1.sub(fixedPhotoRecName1, filename), count=True)
     elif (prenamedFile2.match(filename)):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename))
+        rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename), count=True)
     else:
         buffer.append(files[i])
 files = buffer
@@ -930,7 +933,7 @@ for i in range(0, len(files)):
                     else: newFilename = _normalized(re.sub(r'\s+', r'-', newFilename[0].lower()))
                 else:
                     newFilename = _normalized(os.path.split(newFilename[0])[-1])
-                rename(files[i], (newFilename + r'.desktop'))
+                rename(files[i], (newFilename + r'.desktop'), count=True)
                 done += 1
             else:
                 done += 1
@@ -976,7 +979,7 @@ for i in range(0, len(files)):
             if (len(name) != 1): continue
             newFilename = _normalized(name[0][1]) + os.path.splitext(files[i])[-1]
             if (len(pkg) == 1): newFilename = _normalized(pkg[0]) + r'.' + newFilename
-            rename(files[i], newFilename)
+            rename(files[i], newFilename, count=True)
     else:
         buffer.append(files[i])
 files = buffer
@@ -1025,7 +1028,7 @@ for i in range(0, len(files)):
             if (title is None): title = xml.find(r'.//name')
         if (title is not None): title = title.text
         else: continue
-        rename(files[i], (_normalized(title) + r'.html.gz'))
+        rename(files[i], (_normalized(title) + r'.html.gz'), count=True)
     elif (files[i].endswith(r'.gz')):
         try:
             gz = gzip.open(files[i], r'rb')
@@ -1128,6 +1131,7 @@ if (not option_keepDirStructure):
 # SORTING FILES INTO MORE MEANINGFUL SUBDIRECTORIES
 
 if (not option_keepDirStructure):
+    sys.stdout.write(r'Organizing files...')
     done = 0
     files = []
     for path, subdirs, items in os.walk(targetRootDir):
@@ -1155,18 +1159,27 @@ if (not option_keepDirStructure):
         done += 1
         progress(r'Organizing files...', done, initialTotal)
 
+    if (done == 1): print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
+    else: print('\r' + _num(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
+
 
 
 # FURTHER SPLITTING FILES INTO SUB-SUBDIRECTORIES
 
 if (not option_keepDirStructure):
+    sys.stdout.write(r'Splitting files into subdirectories...')
+    done = 0
+    j = 0
     maxFilesPerDir = 250
     for subdir in [os.path.join(targetRootDir, d) for d in os.listdir(targetRootDir)]:
         files = [os.path.join(subdir, file) for file in os.listdir(subdir)]
         files = [file for file in files if os.path.isfile(file)]
-        if (len(files) <= maxFilesPerDir): continue
+        if (len(files) <= maxFilesPerDir):
+            done += len(files)
+            continue
         files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
         i = 0
+        j += 1
         for chunk in files:
             i += 1
             subsubdir = os.path.join(subdir, str(i))
@@ -1178,6 +1191,14 @@ if (not option_keepDirStructure):
                 continue
             for file in chunk:
                 os.rename(file, os.path.join(subsubdir, os.path.split(file)[-1]))
+                done += 1
+                progress(r'Splitting files into subdirectories...', done, initialTotal)
+
+    if (done < maxFilesPerDir):
+        sys.stdout.write('\r' + (r' ' * 75) + '\r')
+    else:
+        sys.stdout.write('\r' + _num(done) + ' files split into ' _num(j) + ' subdirectories')
+        print((r' ' * 20) + ('\b' * 20))
 
 
 
@@ -1186,14 +1207,6 @@ if (not option_keepDirStructure):
 for path, subdirs, items in os.walk(targetRootDir):
     try: os.rmdir(path)
     except: pass
-
-
-
-# SOME VERBOSITY
-
-if (not option_keepDirStructure):
-    if (done == 1): print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
-    else: print('\r' + _num(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
 
 
 
