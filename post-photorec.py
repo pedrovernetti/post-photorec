@@ -1179,7 +1179,7 @@ if (not option_keepDirStructure):
             continue
         files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
         i = 0
-        j += 1
+        j += len(files)
         for chunk in files:
             i += 1
             subsubdir = os.path.join(subdir, str(i))
