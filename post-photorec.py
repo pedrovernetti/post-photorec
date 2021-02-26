@@ -183,7 +183,7 @@ def decodedFileContent( file ):
 
 # METADATA-TO-FILENAME FUNCTIONS
 
-def nonEXIFImageFilename( imageInfo, currentName ):
+def nonEXIFImageFilename( currentName, imageInfo ):
     date = imageInfo.get(r'Creation Time', r'').replace(r':', r'-')
     isScreenshot = r'screenshot' in imageInfo.get(r'Software', r'').lower()
     title = r''
@@ -192,7 +192,7 @@ def nonEXIFImageFilename( imageInfo, currentName ):
 
 def imageFilename( currentName ):
     _mute()
-    try: image = Image.open(files[i], r'r')
+    try: image = Image.open(currentName, r'r')
     except: return os.path.split(currentName)[-1]
     try: EXIF = image._getexif()
     except: EXIF = None
@@ -204,7 +204,7 @@ def imageFilename( currentName ):
             _unmute()
             return os.path.split(currentName)[-1]
         if (not EXIF):
-            newFilename = nonEXIFImageFilename(image.info, currentName)
+            newFilename = nonEXIFImageFilename(currentName, image.info)
             image.close()
             _unmute()
             return newFilename
@@ -241,8 +241,14 @@ def imageFilename( currentName ):
         _unmute()
         return _normalized(cameraModel + r' ' + date + os.path.splitext(currentName)[-1])
 
-def songFilename( parsedInfo, currentName ):
+def songFilename( currentName, parsedInfo=None ):
     _mute()
+    if (parsedInfo is None):
+        try:
+            parsedInfo = MediaInfo.parse(currentName)
+        except:
+            _unmute()
+            return os.path.split(currentName)[-1]
     if (parsedInfo.tracks[0].overall_bit_rate is not None):
         bitrate = parsedInfo.tracks[0].overall_bit_rate
         if (bitrate > 1024): bitrate = str(int(bitrate // 1000)) + r' kbps'
@@ -259,17 +265,21 @@ def songFilename( parsedInfo, currentName ):
     if (parsedInfo.tracks[0].album is not None): album = parsedInfo.tracks[0].album + r' - '
     else: album = r''
     final = _normalized(artist + album + title + bitrate)
-    if (len(final) <= 1):
-        _unmute()
-        return os.path.split(currentName)[-1]
+    _unmute()
+    if (len(final) <= 1): return os.path.split(currentName)[-1]
     path = currentName.rsplit(os.path.sep, 1)[0]
     extension = os.path.splitext(currentName)[-1]
     if (extension == r'.mp4'): extension = r'.m4a'
-    _unmute()
     return (final + extension)
 
-def videoFilename( parsedInfo, currentName ):
+def videoFilename( currentName, parsedInfo=None ):
     _mute()
+    if (parsedInfo is None):
+        try:
+            parsedInfo = MediaInfo.parse(currentName)
+        except:
+            _unmute()
+            return os.path.split(currentName)[-1]
     res = r''
     for track in parsedInfo.tracks:
         if (track.track_type[0] == r'V'):
@@ -316,7 +326,7 @@ def PDFFilename( currentName ):
 
 def OLEDocumentFilename( currentName ):
     try:
-        document = OLEFile(files[i])
+        document = OLEFile(currentName)
         documentMetadata = document.get_metadata()
         document.close()
         encoding = documentMetadata.codepage
@@ -328,12 +338,12 @@ def OLEDocumentFilename( currentName ):
         author = r' (' + documentMetadata.author.decode(encoding) + r')'
     if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
         title = _normalized(documentMetadata.title.decode(encoding))
-        return (_normalized(title + author) + os.path.splitext(files[i])[-1])
+        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
     return os.path.split(currentName)[-1]
 
 def openXMLDocumentFilename( currentName ):
     try:
-        document = ZIPFile(files[i], r'r')
+        document = ZIPFile(currentName, r'r')
         XMLMetadataFile = document.open(r'docProps/core.xml')
         parsedXML = _parsedXML(XMLMetadataFile)
         if (parsedXML is None): return os.path.split(currentName)[-1]
@@ -343,7 +353,7 @@ def openXMLDocumentFilename( currentName ):
         if ((field is not None) and (len(field.text) > 1)): title = field.text
         else: return os.path.split(currentName)[-1]
         XMLMetadataFile.close()
-        return (_normalized(title + author) + os.path.splitext(files[i])[-1])
+        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
     except:
         return os.path.split(currentName)[-1]
 
@@ -441,7 +451,7 @@ def windowsPlaylistFilename( currentName ):
 def cueSheetFilename( currentName ):
     title = None
     try:
-        with open(files[i], r'rb') as f:
+        with open(currentName, r'rb') as f:
             content = decodedFileContent(f)
             title = re.findall('\nTITLE \x22(.*)\x22', content)
             if ((len(title) == 0) or (len(title[0]) == 0)):
@@ -522,6 +532,28 @@ def rename( filePath, newName ):
     except: return
     global renamedFiles
     renamedFiles += 1
+
+
+
+# RENAMING LOOP FUNCTIONS
+
+def renamingLoop( files, target, filenameFunction ):
+    global done
+    buffer = []
+    if (isinstance(target, str)):
+        def isTarget( filePath ): return files[i].endswith(target)
+    elif (isinstance(target, re.Pattern)):
+        def isTarget( filePath ): return target.match(files[i])
+    else:
+        return
+    for i in range(0, len(files)):
+        if (isTarget(files[i])):
+            done += 1
+            progress(r'Analyzing files...', done, initialTotal)
+            rename(files[i], filenameFunction(files[i]))
+        else:
+            buffer.append(files[i])
+    return buffer
 
 
 
@@ -922,15 +954,7 @@ files = buffer
 
 # NAMING IMAGE FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (pictureFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], imageFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, pictureFile, imageFilename)
 
 
 
@@ -948,7 +972,7 @@ for i in range(0, len(files)):
                 if (track.track_type[0] == r'V'):
                     M4A = False
                     break
-            rename(files[i], (songFilename(av, files[i]) if (M4A) else videoFilename(av, files[i])))
+            rename(files[i], (songFilename(files[i], av) if (M4A) else videoFilename(files[i], av)))
         except:
             continue
     elif (files[i].endswith(r'.m4a')):
@@ -956,112 +980,25 @@ for i in range(0, len(files)):
         progress(r'Analyzing files...', done, initialTotal)
         try:
             av = MediaInfo.parse(files[i])
-            rename(files[i], songFilename(av, files[i]))
+            rename(files[i], songFilename(files[i], av))
         except:
             continue
     else:
         buffer.append(files[i])
 files = buffer
 
-buffer = []
-for i in range(0, len(files)):
-    if (audioFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try:
-            av = MediaInfo.parse(files[i])
-            rename(files[i], songFilename(av, files[i]))
-        except:
-            continue
-    else:
-        buffer.append(files[i])
-files = buffer
-
-buffer = []
-for i in range(0, len(files)):
-    if (videoFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try:
-            av = MediaInfo.parse(files[i])
-            rename(files[i], videoFilename(av, files[i]))
-        except:
-            continue
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, audioFile, songFilename)
+files = renamingLoop(files, videoFile, videoFilename)
 
 
 
 # NAMING DOCUMENT FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.pdf')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try: document = PDFFile(files[i], strict=False)
-        except: continue
-        try:
-            if (document.isEncrypted): continue
-            info = document.documentInfo
-            if (info is None): continue
-            author = info.get(r'/Author', r'')
-            if (isinstance(author, PDFIndirectObject)): author = document.getObject(author)
-            author = (author + r' - ') if (author is not None) else r''
-            title = info.get(r'/Title', r'')
-            if (isinstance(title, PDFIndirectObject)): title = document.getObject(title)
-            if ((title is None) or (len(title) <= 1)): continue
-            rename(files[i], (_normalized(author + title) + r'.pdf'))
-        except:
-            continue
-    else:
-        buffer.append(files[i])
-files = buffer
-
-oleFile = re.compile(r'^.+\.(doc|xls|ppt|ole)$')
-buffer = []
-for i in range(0, len(files)):
-    if (oleFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], OLEDocumentFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
-
-openxmlFile = re.compile(r'^.+\.(doc|xls|ppt)x$')
-buffer = []
-for i in range(0, len(files)):
-    if (openxmlFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], openXMLDocumentFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
-
-odFile = re.compile(r'^.+\.f?od[gpst]$')
-buffer = []
-for i in range(0, len(files)):
-    if (odFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], openDocumentFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
-
-htmlFile = re.compile(r'^.+\.[a-z]?html?$')
-buffer = []
-for i in range(0, len(files)):
-    if (htmlFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], HTMLFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, r'.pdf', PDFFilename)
+files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt|ole)$'), OLEDocumentFilename)
+files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt)x$'), openXMLDocumentFilename)
+files = renamingLoop(files, re.compile(r'^.+\.f?od[gpst]$'), openDocumentFilename)
+files = renamingLoop(files, re.compile(r'^.+\.[a-z]?html?$'), HTMLFilename)
 
 
 
@@ -1088,7 +1025,7 @@ for i in range(0, len(files)):
             gz = gzip.open(files[i], r'rb')
         except:
             removeJunkFile(files[i])
-            print (files[i] + " :: dead .gz")
+            print (files[i] + " :: dead .gz") #TODO
     else:
         buffer.append(files[i])
 files = buffer
@@ -1097,67 +1034,26 @@ files = buffer
 
 # NAMING FONT FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (fontFile.match(files[i])):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], fontFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, fontFile, fontFilename)
 
 
 
 # NAMING TORRENT FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.torrent')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], torrentFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, r'.torrent', torrentFilename)
 
 
 
 # NAMING PLAYLIST AND CUE FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.wpl')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], windowsPlaylistFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
-
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.cue')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], cueSheetFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, r'.wpl', windowsPlaylistFilename)
+files = renamingLoop(files, r'.cue', cueSheetFilename)
 
 
 
 # NAMING WINDOWS REGISTRY FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.reg')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], windowsRegistryFilename(files[i]))
-    else:
-        buffer.append(files[i])
-files = buffer
+files = renamingLoop(files, r'.reg', windowsRegistryFilename)
 
 
 
