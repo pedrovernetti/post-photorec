@@ -697,11 +697,13 @@ files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
 if (option_dedupAcrossExtensions):
-    files = [(os.stat(file).st_size, r'', file) for file in files]
+    files = [(os.stat(file).st_size, None, file) for file in files]
 else:
     files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
-files = sorted(files)
 initialTotal = len(files)
+if (option_photorecNamesOnly):
+    files = [(size, ext, file) for size, ext, file in files if photorecName.match(file)]
+files = sorted(files)
 if (initialTotal == 1): print('\r1 file found' + (r' ' * 50) + ('\b' * 50))
 else: print('\r' + _num(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
 
