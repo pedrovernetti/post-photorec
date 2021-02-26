@@ -550,8 +550,9 @@ photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 
 # PROCESSING COMMAND LINE ARGUMENTS
 
-if (r'-h' in sys.argv):
-    helpMessage()
+if (r'-h' in sys.argv): helpMessage()
+
+option_runningWithSudo = not os.getuid()
 
 targetRootDir = None
 photoRecTarget = None
@@ -564,8 +565,13 @@ for arg in sys.argv:
         waitingRBFList = False
         if (arg.startswith(r'-')):
             photoRecTarget = r'_'
-        elif (stat.S_ISBLK(os.stat(arg).st_mode) or
-            (os.path.isfile(arg) and ddImageFile.match(arg))):
+            photoRecTargetType = 0
+        elif (stat.S_ISBLK(os.stat(arg).st_mode)):
+            photoRecTargetType = 1
+            photoRecTarget = arg
+            continue
+        elif (os.path.isfile(arg) and ddImageFile.match(arg)):
+            photoRecTargetType = 2
             photoRecTarget = arg
             continue
         else:
@@ -591,9 +597,14 @@ if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
         error("No valid path specified", 2)
 
 if (waitingRBFList): photoRecTarget = r'_'
+
+if (option_runningWithSudo):
+    uid = int(os.environ.get(r'SUDO_UID', os.getuid()))
+    gid = int(os.environ.get(r'SUDO_GID', os.getgid()))
+elif (photoRecTarget and (os.stat(photoRecTarget).st_uid != os.getuid())):
+    error(("Cannot access '" + photoRecTarget + "' (try running as root)"), 1)
+
 if (photoRecTarget):
-    if (os.getuid() != 0):
-        error("The current user does not have some needed permissions", 1)
     if (photoRecTarget == r'_'): command = [r'photorec', r'/log', r'/d', targetRootDir]
     else: command = [r'photorec', r'/log', r'/d', targetRootDir, photoRecTarget]
     try:
@@ -604,11 +615,6 @@ if (photoRecTarget):
         sys.stdout.write('\n')
     except OSError:
         error("Could not run PhotoRec", 1)
-    uid = int(os.environ.get(r'SUDO_UID', os.getuid()))
-    gid = int(os.environ.get(r'SUDO_GID', os.getgid()))
-    for path, subdirs, items in os.walk(targetRootDir):
-        for name in items: os.chown(os.path.join(path, name), uid, gid)
-        for name in subdirs: os.chown(os.path.join(path, name), uid, gid)
 
 junkExtensions = [ext for ext in junkExtensions.split(r',') if (len(ext) > 0)]
 junkExtensions = tuple([(ext if (ext.startswith(r'.')) else (r'.' + ext)) for ext in junkExtensions])
@@ -732,21 +738,27 @@ if (option_removeKnownJunk):
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-prenamedFile = r'^f[0-9]{5,}_([^_].*)[._]'
-prenamedFile += r'(([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
-prenamedFile += r'[Dd]2[Ss]|[Zz][Ii][Pp]|[Dd][Oo][Cc]|'
-prenamedFile = re.compile(prenamedFile + '[Pp][Dd][Ff])$')
-def fixedPhotoRecName( match ):
-    return match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.')
+prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._]'
+prenamedFile1 += r'(([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
+prenamedFile1 = re.compile(prenamedFile1 + r'[Dd]2[Ss])$')
+prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._]([Zz][Ii][Pp]|[Pp][Dd][Ff]|[Dd][Oo][Cc]|[Xx][Ll][Ss]|'
+prenamedFile2 = re.compile(prenamedFile2 + r'[Pp][Pp][SsTt]|)$')
+def fixedPhotoRecName1( match ):
+    return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
+def fixedPhotoRecName2( match ):
+    return (re.sub(r'\s+', r' ', match.group(1).replace(r'_', r' ')).strip() + r'.' +
+            match.group(2).lower().replace(r'_', r'.'))
 buffer = []
 for i in range(0, len(files)):
     filename = files[i].rsplit(os.path.sep, 1)[-1]
-    if (prenamedFile.match(filename)):
-        newFilename = prenamedFile.sub(fixedPhotoRecName, filename)
+    if (prenamedFile1.match(filename)):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], newFilename)
-        files[i] = newFilename
+        rename(files[i], prenamedFile1.sub(fixedPhotoRecName1, filename))
+    elif (prenamedFile2.match(filename)):
+        done += 1
+        progress(r'Analyzing files...', done, initialTotal)
+        rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename))
     else:
         buffer.append(files[i])
 files = buffer
@@ -1280,4 +1292,19 @@ for path, subdirs, items in os.walk(targetRootDir):
 if (not option_keepDirStructure):
     if (done == 1): print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
     else: print('\r' + _num(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
-print('Done!')
+
+
+
+# FIXING FILE OWNERSHIPS IF RUNNING AS ROOT
+
+if (option_runningWithSudo):
+    sys.stdout.write('Fixing ownership of files and directories...')
+    for path, subdirs, items in os.walk(targetRootDir):
+        for name in items: os.chown(os.path.join(path, name), uid, gid)
+        for name in subdirs: os.chown(os.path.join(path, name), uid, gid)
+
+
+
+# DONE
+
+print('\rDone!' + (r' ' * 70))
