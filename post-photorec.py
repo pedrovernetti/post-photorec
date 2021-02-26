@@ -267,10 +267,7 @@ def songFilename( currentName, parsedInfo=None ):
     final = _normalized(artist + album + title + bitrate)
     _unmute()
     if (len(final) <= 1): return os.path.split(currentName)[-1]
-    path = currentName.rsplit(os.path.sep, 1)[0]
-    extension = os.path.splitext(currentName)[-1]
-    if (extension == r'.mp4'): extension = r'.m4a'
-    return (final + extension)
+    return (final + os.path.splitext(currentName)[-1])
 
 def videoFilename( currentName, parsedInfo=None ):
     _mute()
@@ -307,6 +304,25 @@ def videoFilename( currentName, parsedInfo=None ):
         final = _normalized(re.sub((r'( ?\[([0-9]{3,4}p|[48][Kk])\])+'), r'', final) + res)
     if (not final): return os.path.split(currentName)[-1]
     else: return (final + os.path.splitext(currentName)[-1])
+
+def ambigMediaFilename( currentName ):
+    try:
+        parsedInfo = MediaInfo.parse(currentName)
+        if (len(parsedInfo.video_tracks)):
+            newName = videoFilename(currentName, parsedInfo)
+            if (newName[-4:] == r'.ogg'): newName = newName[:-4] + r'.ogv'
+            elif (newName[-4:] == r'.asf'): newName = newName[:-4] + r'.wmv'
+            elif (newName[-5:] == r'.riff'): newName = newName[:-4] + r'.avi'
+        else:
+            newName = songFilename(currentName, parsedInfo)
+            if (newName[-4:] == r'.mp4'): newName = newName[:-4] + r'.m4a'
+            elif (newName[-4:] == r'.asf'): newName = newName[:-4] + r'.wma'
+            elif (newName[-5:] == r'.riff'): newName = newName[:-5] + r'.wav'
+            elif (newName[-3:] == r'.rm'): newName = newName[:-4] + r'.ra'
+            elif (newName[-5:] == r'.rmvb'): newName = newName[:-5] + r'.ra'
+        return newName
+    except:
+        return os.path.split(currentName)[-1]
 
 def PDFFilename( currentName ):
     try:
@@ -973,25 +989,8 @@ files = renamingLoop(files, pictureFile, imageFilename)
 
 # NAMING MEDIA FILES
 
-buffer = []
-for i in range(0, len(files)):
-    if (files[i].endswith(r'.mp4')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try:
-            av = MediaInfo.parse(files[i])
-            M4A = True
-            for track in av.tracks:
-                if (track.track_type[0] == r'V'):
-                    M4A = False
-                    break
-            rename(files[i], (songFilename(files[i], av) if (M4A) else videoFilename(files[i], av)))
-        except:
-            continue
-    else:
-        buffer.append(files[i])
-files = buffer
-
+files = renamingLoop(files, r'.mp4', ambigMediaFilename)
+files = renamingLoop(files, ambigMediaFile, ambigMediaFilename)
 files = renamingLoop(files, audioFile, songFilename)
 files = renamingLoop(files, videoFile, videoFilename)
 
