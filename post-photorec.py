@@ -409,6 +409,29 @@ def HTMLFilename( currentName ):
     else: return os.path.split(currentName)[-1]
     return (_normalized(title) + os.path.splitext(currentName)[-1])
 
+def EPUBFilename( currentName ):
+    try: content = ZIPFile(currentName, r'r')
+    except: return os.path.split(currentName)[-1]
+    try:
+        parsedXML = _parsedXML(content.open(r'content.opf'))
+    except:
+        try:
+            for component in sorted(content.namelist(), key=len):
+                if (component.endswith(r'.opf')):
+                    parsedXML = _parsedXML(content.open(component))
+                    break
+        except:
+            parsedXML = None
+    if (parsedXML is not None):
+        title = parsedXML.find('//title')
+        if ((title is not None) and (len(title.text))):
+            field = parsedXML.find('//creator')
+            author = (field.text + r' - ') if (field is not None) else r''
+            field = parsedXML.find('//publisher')
+            publisher = (r' (' + field.text + ')') if (field is not None) else r''
+            return (_normalized(author + title.text + publisher) + r'.epub')
+    return os.path.split(currentName)[-1]
+
 def fontFilename( currentName ):
     try: font = ttLib.TTFont(currentName)
     except: return os.path.split(currentName)[-1]
@@ -1008,6 +1031,7 @@ files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt|ole)$'), OLEDocumentF
 files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt)x$'), openXMLDocumentFilename)
 files = renamingLoop(files, re.compile(r'^.+\.f?od[gpst]$'), openDocumentFilename)
 files = renamingLoop(files, re.compile(r'^.+\.[a-z]?html?$'), HTMLFilename)
+files = renamingLoop(files, r'.epub', EPUBFilename)
 
 
 
