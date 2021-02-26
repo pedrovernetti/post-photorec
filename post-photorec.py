@@ -56,15 +56,16 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
 
  Options:
 
-  -h        Displays this help message and exits
+  -h        Display this help message and exits
   -D        Do not remove duplicate files
+  -d        Ignore file extension when deduplicating files
   -J        Do not remove junk files (well known to be usually unwanted)
   -k        Keep directory structure (do not move files)
   -n        Only rename/remove files with photorec-generated names
   -Q        No real-time progress information
   -q        Quiet mode (no verbosity)
-  -r EXTS   Removes files with any of the given (comma-separated) extension(s)
-  -x [DEV]  Runs PhotoRec on DEV (device or image path) before anything else
+  -r EXTS   Remove files with any of the given (comma-separated) extension(s)
+  -x [DEV]  Run PhotoRec on DEV (device or image path) before anything else
   -z        Do not remove empty (0B) files
 
 """
@@ -177,7 +178,7 @@ def decodedFileContent( file ):
     except:
         encoding = r'utf-8'
     content = content.decode(encoding, r'ignore')
-    return content
+    return content.strip()
 
 
 
@@ -191,7 +192,6 @@ def nonEXIFImageFilename( currentName, imageInfo ):
     return os.path.split(currentName)[-1]
 
 def imageFilename( currentName ):
-    _mute()
     try: image = Image.open(currentName, r'r')
     except: return os.path.split(currentName)[-1]
     try: EXIF = image._getexif()
@@ -477,10 +477,11 @@ def windowsRegistryFilename( currentName ):
             if (regName[:8] == b'REGEDIT4'):
                 REGEDIT4 = True
                 reg.seek(0, 0)
-                regName = decodedFileContent(reg).strip()
+                regName = decodedFileContent(reg)
         if (REGEDIT4):
             regName = [match[2:-2].rstrip(r']') for match in re.findall(r'\n\[[^\n]+\]\r?\n', regName)]
             regName = longestCommonPrefix(regName)
+            if (regName.startswith(r'-')): regName = r'Clear ' + regName[1:]
         else:
             regName = regName[48:].decode(r'utf-16', r'ignore').strip('\x00?_- \n\\')
         if (len(regName) < 1): return os.path.split(currentName)[-1]
@@ -535,7 +536,7 @@ def rename( filePath, newName ):
 
 
 
-# RENAMING LOOP FUNCTIONS
+# RENAMING LOOP FUNCTION
 
 def renamingLoop( files, target, filenameFunction ):
     global done
@@ -559,7 +560,7 @@ def renamingLoop( files, target, filenameFunction ):
 
 # DEFINING FILENAME REGEXES
 
-ddImageFile = re.compile(r'^.*\.(dd|e01|im[ag]|bin)$')
+ddImageFile = re.compile(r'^.*\.(dd|e01|im[ag]|bin)$', re.IGNORECASE)
 
 fontFile = re.compile(r'^.+\.(dfont|woff|[ot]t[cf]|tte)$')
 codeFile = r'^.*\.([CcHh](\+\+|pp)?|[cejlrt]s|objc|[defmMPrRS]|p(y3?|[lm]|p|as|hp|s1)|s(h|ql|c(ala|ptd?)?)|'
@@ -665,6 +666,7 @@ option_removeKnownJunk = r'-J' not in sys.argv
 if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
 
+option_dedupAcrossExtensions = r'-d' in sys.argv
 option_removeDuplicates = r'-D' not in sys.argv
 option_keepEmptyFiles = r'-z' in sys.argv
 option_keepDirStructure = r'-k' in sys.argv
@@ -678,6 +680,11 @@ sys.stdout.write(r'Listing files...')
 files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
+if (option_dedupAcrossExtensions):
+    files = [(os.stat(file).st_size, r'', file) for file in files]
+else:
+    files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
+files = sorted(files)
 initialTotal = len(files)
 if (initialTotal == 1): print('\r1 file found' + (r' ' * 50) + ('\b' * 50))
 else: print('\r' + _num(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
@@ -687,8 +694,6 @@ else: print('\r' + _num(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 2
 # REMOVING EMPTY FILES
 
 sys.stdout.write(r'Removing empty files...')
-files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
-files = sorted(files)
 j = 0
 if ((not option_keepEmptyFiles) and (files[0][0] == 0)):
     for i in range(0, len(files)):
@@ -716,12 +721,18 @@ if (option_removeDuplicates):
         for j in range((i + 1), len(files)):
             if (files[i][0] != files[j][0]): break
             if (files[i][1] == files[j][1]):
+                if (not os.path.exists(files[i][2])):
+                    files[j] = (-1, r'/', files[i][2])
+                    break
+                if (not os.path.exists(files[j][2])):
+                    done += 1
+                    files[j] = (-1, r'/', files[j][2])
+                    continue
                 if (filecmp.cmp(files[i][2], files[j][2], shallow=False)):
                     actuallyDeduped += 1
                     progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
-                    try: os.remove(files[j][2])
-                    except FileNotFoundError: pass
-                    files[j] = (0, r'', files[j][2])
+                    os.remove(files[j][2])
+                    files[j] = (-1, r'/', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
     initialTotal -= actuallyDeduped
@@ -770,11 +781,10 @@ if (option_removeKnownJunk):
 
 # IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
 
-prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._]'
-prenamedFile1 += r'(([DdRr][Ll][Ll]|[Ee][Xx][Ee]|[Ss][Yy][Ss])(_[Mm][Uu][Ii])?|'
-prenamedFile1 = re.compile(prenamedFile1 + r'[Dd]2[Ss])$')
-prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._]([Zz][Ii][Pp]|[Pp][Dd][Ff]|[Dd][Oo][Cc]|[Xx][Ll][Ss]|'
-prenamedFile2 = re.compile(prenamedFile2 + r'[Pp][Pp][SsTt]|)$')
+prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
+prenamedFile1 = re.compile(prenamedFile1 + r'd2s|ocx)$', re.IGNORECASE)
+prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
+prenamedFile2 = re.compile(prenamedFile2 + r'pp[st])$', re.IGNORECASE)
 def fixedPhotoRecName1( match ):
     return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
 def fixedPhotoRecName2( match ):
@@ -799,7 +809,8 @@ files = buffer
 
 # REMOVING UNSUPPORTED FILES FROM THE LIST
 
-unsupported = re.compile(r'^.*\.(d2s|sys|[ao]|json(lz4)?|class|m3u|pyc)$')
+unsupported = r'^.*\.(d2s|sys|[ao]|json|class|m3u|log|'
+unsupported = re.compile(unsupported + r'pyc)$')
 files = [file for file in files if (not unsupported.match(file))]
 done = initialTotal - len(files)
 progress(r'Analyzing files...', done, initialTotal)
@@ -824,7 +835,7 @@ buffer = []
 for i in range(0, len(files)):
     if (files[i].endswith(r'.txt') and os.path.isfile(files[i])):
         with open(files[i], r'rb') as f:
-            content = decodedFileContent(f).strip()
+            content = decodedFileContent(f)
             lineCount = content.count('\n')
             if ((lineCount > 6) and
                 ((len(logLine1.findall(content)) >= (lineCount - 1)) or
@@ -878,7 +889,7 @@ buffer = []
 for i in range(0, len(files)):
     if (files[i].endswith(r'.ini') and os.path.isfile(files[i])):
         with open(files[i], r'rb') as f:
-            content = decodedFileContent(f).strip()
+            content = decodedFileContent(f)
             lineCount = content.count('\n')
             if (content.startswith(r'[Script Info]')):
                 if (len(ssaLine.findall(content)) > max(1, ((lineCount / 3) - 25))):
@@ -889,8 +900,10 @@ for i in range(0, len(files)):
             elif (content.startswith(r'[General]\s*\n\s*Version=DrumSynth v2\.0')):
                 rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.ds'))
                 done += 1
-            elif (content.startswith(r'[MIME Cache]')):
+            elif (content.startswith((r'[MIME Cache]', r'[.ShellClassInfo]'))):
                 removeJunkFile(files[i])
+            elif (content.startswith(r'[Device Install Log]')):
+                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.log'))
             elif (content.startswith(r'[Desktop Entry]')):
                 newFilename = desktopEntryNameLine1.findall(content)
                 if (len(newFilename) < 1):
@@ -973,14 +986,6 @@ for i in range(0, len(files)):
                     M4A = False
                     break
             rename(files[i], (songFilename(files[i], av) if (M4A) else videoFilename(files[i], av)))
-        except:
-            continue
-    elif (files[i].endswith(r'.m4a')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try:
-            av = MediaInfo.parse(files[i])
-            rename(files[i], songFilename(files[i], av))
         except:
             continue
     else:
