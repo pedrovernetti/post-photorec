@@ -184,6 +184,21 @@ def decodedFileContent( file ):
 
 # METADATA-TO-FILENAME FUNCTIONS
 
+className = re.compile(r'\n[\t ]*public +((abstract|static) +)*class ([a-zA-Z0-9_]+)')
+packageName = re.compile(r'\n[\t ]*package ([a-zA-Z0-9_]+);')
+def javaCSharpFilename( currentName ):
+    try:
+        with open(currentName, r'rb') as f:
+            content = decodedFileContent(f)
+            pkg = packageName.findall(content)
+            name = className.findall(content)
+        if (len(name) != 1): return os.path.split(currentName)[-1]
+        newFilename = _normalized(name[0][2]) + os.path.splitext(currentName)[-1]
+        if (len(pkg) == 1): newFilename = _normalized(pkg[0]) + r'.' + newFilename
+        return newFilename
+    except:
+        return os.path.split(currentName)[-1]
+
 def nonEXIFImageFilename( currentName, imageInfo ):
     date = imageInfo.get(r'Creation Time', r'').replace(r':', r'-')
     isScreenshot = r'screenshot' in imageInfo.get(r'Software', r'').lower()
@@ -965,8 +980,6 @@ files = buffer
 
 # NAMING CODE FILES
 
-className = re.compile(r'\n[\t ]*public +(static +)?class ([a-zA-Z0-9_]+)')
-packageName = re.compile(r'\n[\t ]*package ([a-zA-Z0-9_]+);')
 variableName = r'^[a-zA-Z_][a-zA-Z0-9_]*'
 cppLine = r'((^|\n)[\t ]*(namespace\s*' + variableName + '\s*\{|class\s*' + variableName
 cppLine += r'\s*[;:{]|#include <[^<>]*([^.][^h]|\.hpp)>|cout\s*<<|cin\s*>>|template\s*<[^\n;]*>)|'
@@ -988,20 +1001,12 @@ for i in range(0, len(files)):
             if (len(cppLine.findall(content)) > 0):
                 rename(files[i], (os.path.split(files[i])[-1][:-5] + r'.cpp'))
                 files[i] = files[i][:-5] + r'.cpp'
-    if (files[i].endswith((r'.cs', r'java'))):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        with open(files[i], r'rb') as f:
-            content = decodedFileContent(f)
-            pkg = packageName.findall(content)
-            name = className.findall(content)
-            if (len(name) != 1): continue
-            newFilename = _normalized(name[0][1]) + os.path.splitext(files[i])[-1]
-            if (len(pkg) == 1): newFilename = _normalized(pkg[0]) + r'.' + newFilename
-            rename(files[i], newFilename, count=True)
     else:
         buffer.append(files[i])
 files = buffer
+
+files = renamingLoop(files, r'.java', javaCSharpFilename)
+files = renamingLoop(files, r'.cs', javaCSharpFilename)
 
 
 
@@ -1158,17 +1163,22 @@ if (not option_keepDirStructure):
         files += [os.path.join(path, name) for name in items]
     initialTotal = len(files)
     for file in files:
-        if (ambigMediaFile.match(file)):
-            av = MediaInfo.parse(file)
-            audioOnly = True
-            for track in av.tracks:
-                if (track.track_type[0] == r'V'):
-                    audioOnly = False
-                    break
-            if (audioOnly): files[done] = moveNotReplacing(file, audioSubdir)
-            else: files[done] = moveNotReplacing(file, videosSubdir)
+        if (ambigMediaFile.match(file)): #TODO: test
+            try:
+                video = len(MediaInfo.parse(file).video_tracks)
+                files[done] = moveNotReplacing(file, (audioSubdir if video else videosSubdir))
+            except:
+                files[done] = moveNotReplacing(file, miscSubdir)
+        elif (file.endswith(r'.djvu')):
+            try:
+                with open(file, r'rb') as djvu:
+                    content = djvu.read(32).decode(r'cp1252', r'ignore')
+                document = bool(re.match(r'^AT&TFORM([^\x21-\x7E]*)DJVM', content))
+                files[done] = moveNotReplacing(file, (documentsSubdir if document else picturesSubdir))
+            except:
+                files[done] = moveNotReplacing(file, documentsSubdir)
         else:
-            if (file.endswith(r'txt')): files[done] = moveNotReplacing(file, txtSubdir)
+            if (file.endswith(r'.txt')): files[done] = moveNotReplacing(file, txtSubdir)
             elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
             elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
             elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
