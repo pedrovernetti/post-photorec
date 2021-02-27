@@ -59,6 +59,7 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
   -h        Display this help message and exits
   -D        Do not remove duplicate files
   -d        Ignore file extension when deduplicating files
+  -I        Remove duplicate images (visual duplicates) (largest ones kept)
   -J        Do not remove junk files (well known to be usually unwanted)
   -k        Keep directory structure (do not move files)
   -n        Only rename/remove files with photorec-generated names
@@ -544,6 +545,44 @@ def windowsRegistryFilename( currentName ):
 
 
 
+# VISUAL IMAGE DEDUPLICATION FUNCTIONS
+
+def sameRatio( imageA, imageB ):
+    Aw, Ah = imageA.size
+    Bw, Bh = imageB.size
+    if (abs(Ah - Aw) < (((Ah + Aw) / 2) * 0.01)):
+        if (abs(Bh - Bw) > (((Bh + Bw) / 2) * 0.01)): return False
+        ratioA = 1
+        ratioB = round((max([Bh, Bw]) / min([Bh, Bw])), 2)
+    elif (Aw > Ah):
+        if (not (Bw > Bh)): return False
+        ratioA = round((Aw / Ah), 2)
+        ratioB = round((Bw / Bh), 2)
+    else:
+        if (not (Bh > Bw)): return False
+        ratioA = round((Ah / Aw), 2)
+        ratioB = round((Bh / Bw), 2)
+    return (round(abs(ratioA - ratioB), 2) <= 0.01)
+
+def similarEnoughImages( imageA, imageB, resizing ):
+    A = list(imageA.getdata())
+    B = list(imageB.getdata())
+    tolerance = 5 + (min(resizing, 10) // 2)
+    diff = []
+    for i in range(0, len(A)):
+        diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]), abs(A[i][2] - B[i][2])]
+    return ((sum(diff) / len(diff)) < tolerance)
+
+def sameImages( imageA, imageB ):
+    if (not sameRatio(image, anotherImage)): return False
+    sizeA = imageA.size[0] + imageA.size[1]
+    sizeB = imageB.size[0] + imageB.size[1]
+    if (imageA.size > imageB.size): imageA = imageA.resize(imageB.size)
+    elif (imageA.size < imageB.size): imageB = imageB.resize(imageA.size)
+    return similarEnoughImages(imageA, imageB, (max(sizeA, sizeB) / min(sizeA, sizeB)))
+
+
+
 # SPECIAL FILE MANIPULATION FUNCTIONS
 
 removedJunkFiles = 0
@@ -724,6 +763,7 @@ option_removeDuplicates = r'-D' not in sys.argv
 option_keepEmptyFiles = r'-z' in sys.argv
 option_keepDirStructure = r'-k' in sys.argv
 option_photorecNamesOnly = r'-n' in sys.argv
+option_visuallyDedupImages = r'-I' in sys.argv
 
 
 
@@ -1105,6 +1145,7 @@ else: print(_num(removedJunkFiles) + ' junk files removed')
 # REMOVING FILES BY EXTENSION (IF SPECIFIED)
 
 if (len(junkExtensions) > 0):
+    sys.stdout.write(r'Removing files by extension...')
     done = 0
     if (option_photorecNamesOnly):
         def isValidJunkByExtension( filename ):
@@ -1120,6 +1161,53 @@ if (len(junkExtensions) > 0):
                 removeJunkFile(os.path.join(path, name))
     if (done == 1): print('\r1 file removed by extension' + (r' ' * 30) + ('\b' * 30))
     else: print('\r' + _num(done) + ' files removed by extension' + (r' ' * 20) + ('\b' * 20))
+
+
+
+# DEDUPLICATING IMAGES VISUALLY (IF SPECIFIED)
+
+if (option_visuallyDedupImages):
+    deduplicablePictureFile = r'^.*\.(b([lm]p|pg)|d(c[rx]|ds|ib)|emf|g(d|if)|i(mt?|co|cns)|flif|'
+    deduplicablePictureFile += r'j(p[2efx]|[np]g|peg|xr)|m(ic|po|sp|ng)|p(c[dx]|ng|[abgnp]m)|'
+    deduplicablePictureFile += r'c(in|r2|rw)|[hw]dp|heic|sgi|tga|w(al|ebp|mf|bmp|pg)|'
+    deduplicablePictureFile = re.compile(deduplicablePictureFile + r'x[bp]m)$')
+    sys.stdout.write(r'Visually deduplicating images...')
+    done = 0
+    actuallyDeduped = 0
+    files = []
+    for path, subdirs, items in os.walk(targetRootDir):
+        files += [os.path.join(path, name) for name in items if deduplicablePictureFile.match(name)]
+    initialTotal = len(files)
+    for i in range(0, len(files)):
+        if (not files[i]): continue
+        image = Image.open(files[i]).convert(r'RGB')
+        done += 1
+        progress(r'Visually deduplicating images...', done, initialTotal)
+        currentGroup = [((image.size[0] + image.size[1]), files[i])]
+        for j in range((i + 1), len(files)):
+            if (not files[j]): continue
+            anotherImage = Image.open(files[j]).convert(r'RGB')
+            if (sameImages(image, anotherImage)):
+                currentGroup.append(((anotherImage.size[0] + anotherImage.size[1]), files[j]))
+                files[j] = None
+                done += 1
+                progress(r'Visually deduplicating images...', done, initialTotal)
+        if (len(currentGroup) > 1):
+            currentGroup = sorted(currentGroup)
+            largestSize = currentGroup[-1][0]
+            largest = [image for size, image in currentGroup if (size >= largestSize)]
+            if (len(largest) == 1): largest = largest[0]
+            else: largest = max(largest, key=lambda f: os.stat(f).st_size)
+            for size, image in currentGroup:
+                if ((image != largest) and os.path.exists(image)):
+                    os.remove(image)
+                    actuallyDeduped += 1
+
+    if (done == 1):
+        print('\r1 image removed for being a visual duplicate' + (r' ' * 25) + ('\b' * 25))
+    else:
+        sys.stdout.write('\r' + _num(actuallyDeduped))
+        print(' images removed for being visual duplicates' + (r' ' * 20) + ('\b' * 20))
 
 
 
