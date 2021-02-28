@@ -25,7 +25,7 @@
 #
 # =============================================================================================
 
-import sys, os, stat, re, mmap, codecs, json, gzip, filecmp
+import sys, os, stat, re, mmap, codecs, json, gzip, filecmp, time
 from unicodedata import category as ucategory, normalize as unormalize
 from zipfile import ZipFile as ZIPFile
 
@@ -83,6 +83,9 @@ def progress( message, done, total ):
     p = '\x1B[2m' + str(done) + r'/' + str(total) + '\x1B[0m'
     sys.stdout.write('\r' + message + r' ' + p.ljust(progressLen) + ('\b' * (progressLen - len(p))))
 
+def _clearLine():
+    sys.stdout.write('\r' + (r' ' * 80) + '\r')
+
 def _num( x ):
     return (str(x) if (x > 0) else r'No')
 
@@ -93,6 +96,21 @@ def _unmute():
 def _mute():
     try: sys.stderr = sys.stdout = open(os.devnull, r'w')
     except: _unmute()
+
+def formatedDuration( duration ):
+    hours = int(duration) // 3600
+    minutes = int(duration % 3600) // 60
+    seconds = round(duration % 60, (3 if (duration >= 1) else 6))
+    time = ((str(minutes) + 'm ') if minutes else r'') + str(seconds) + r's'
+    if (hours): time = str(hours) + 'h ' + time
+    return time
+
+def stepConclusion( message, done, duration ):
+    _clearLine()
+    message = message.replace(r'#', _num(done))
+    if (done and (duration >= 0.01)):
+        message += ' in ' + formatedDuration(duration)
+    sys.stdout.write(message.replace(r'_', (r'' if (initialTotal == 1) else r's')) + '\n')
 
 
 
@@ -574,6 +592,16 @@ def similarEnoughImages( imageA, imageB, resizing ):
         diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]), abs(A[i][2] - B[i][2])]
     return ((sum(diff) / len(diff)) < tolerance)
 
+def similarEnoughImages2( imageA, imageB, resizing ):
+    A = imageA.getdata()
+    B = imageB.getdata()
+    tolerance = 5 + (min(resizing, 10) // 2)
+    diff = 0
+    for i in range(0, len(A)):
+        diff += (abs(A[i][0] - B[i][0]) + abs(A[i][1] - B[i][1]) +
+                 abs(A[i][2] - B[i][2]) + abs(A[i][3] - B[i][3]))
+    return ((diff / (len(A) * 4)) < tolerance)
+
 def sameImages( imageA, imageB ):
     if (not sameRatio(image, anotherImage)): return False
     sizeA = imageA.size[0] + imageA.size[1]
@@ -626,6 +654,16 @@ def rename( filePath, newName, count=False ):
     except: return
     global renamedFiles
     if (count): renamedFiles += int(filePath != newPath)
+
+def createSubdirs( rootDirPath, subdirs ):
+    subdirPaths = [rootDirPath] * len(subdirs)
+    for i in range(0, len(subdirs)):
+        subdirPath = os.path.join(rootDirPath, subdirs[i])
+        try: os.mkdir(subdirPath)
+        except FileExistsError: pass
+        except: continue
+        subdirPaths[i] = subdirPath
+    return tuple(subdirPaths)
 
 
 
@@ -772,6 +810,7 @@ option_keepEmptyFiles = r'-z' in sys.argv
 # GENERATING THE LIST OF FILES TO BE PROCESSED
 
 sys.stdout.write(r'Listing files...')
+ellapsedTime = time.monotonic()
 files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
@@ -783,27 +822,29 @@ initialTotal = len(files)
 if (option_photorecNamesOnly):
     files = [(size, ext, file) for size, ext, file in files if photorecName.match(file)]
 files = sorted(files)
-if (initialTotal == 1): print('\r1 file found' + (r' ' * 50) + ('\b' * 50))
-else: print('\r' + _num(initialTotal) + ' files found' + (r' ' * 20) + ('\b' * 20))
+ellapsedTime = time.monotonic() - ellapsedTime
+stepConclusion(r'# file_ found', initialTotal, ellapsedTime)
 
 
 
 # REMOVING EMPTY FILES
 
-sys.stdout.write(r'Removing empty files...')
-j = 0
-if ((not option_keepEmptyFiles) and (files[0][0] == 0)):
-    for i in range(0, len(files)):
-        if (files[i][0] != 0): break
-        j += 1
-    for i in range(0, j):
-        progress(r'Removing empty files...', (j - (j - i)), j)
-        try: os.remove(files[i][2])
-        except FileNotFoundError: pass
-    files = files[j:]
-    initialTotal -= j
-if (j == 1): print('\r1 empty file removed' + (r' ' * 50) + ('\b' * 50))
-else: print('\r' + _num(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
+if (not option_keepEmptyFiles):
+    sys.stdout.write(r'Removing empty files...')
+    j = 0
+    ellapsedTime = time.monotonic()
+    if (files[0][0] == 0):
+        for i in range(0, len(files)):
+            if (files[i][0] != 0): break
+            j += 1
+        for i in range(0, j):
+            progress(r'Removing empty files...', (j - (j - i)), j)
+            try: os.remove(files[i][2])
+            except FileNotFoundError: pass
+        files = files[j:]
+        initialTotal -= j
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# empty file_ removed', j, ellapsedTime)
 
 
 
@@ -811,6 +852,7 @@ else: print('\r' + _num(j) + ' empty files removed' + (r' ' * 20) + ('\b' * 20))
 
 if (option_removeDuplicates):
     sys.stdout.write(r'Deduplicating files...')
+    ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
     for i in range(0, len(files)):
@@ -833,8 +875,8 @@ if (option_removeDuplicates):
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
     initialTotal -= actuallyDeduped
-    if (actuallyDeduped == 1): print('\r1 duplicate removed' + (r' ' * 50) + ('\b' * 50))
-    else: print('\r' + _num(actuallyDeduped) + ' duplicates removed' + (r' ' * 20) + ('\b' * 20))
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# duplicate_ removed', actuallyDeduped, ellapsedTime)
 
 
 
@@ -1102,7 +1144,7 @@ for i in range(0, len(files)):
             gz = gzip.open(files[i], r'rb')
         except:
             removeJunkFile(files[i])
-            print (files[i] + " :: dead .gz") #TODO
+            print (files[i] + " :: dead .gz") #TODO: test corrupted archives
     else:
         buffer.append(files[i])
 files = buffer
@@ -1124,6 +1166,7 @@ else: print(_num(removedJunkFiles) + ' junk files removed')
 
 if (len(junkExtensions) > 0):
     sys.stdout.write(r'Removing files by extension...')
+    ellapsedTime = time.monotonic()
     done = 0
     if (option_photorecNamesOnly):
         def isValidJunkByExtension( filename ):
@@ -1137,8 +1180,8 @@ if (len(junkExtensions) > 0):
                 done += 1
                 progress(r'Removing files by extension...', done, initialTotal)
                 removeJunkFile(os.path.join(path, name))
-    if (done == 1): print('\r1 file removed by extension' + (r' ' * 30) + ('\b' * 30))
-    else: print('\r' + _num(done) + ' files removed by extension' + (r' ' * 20) + ('\b' * 20))
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# file_ removed by extension', done, ellapsedTime)
 
 
 
@@ -1150,6 +1193,7 @@ if (option_visuallyDedupImages):
     deduplicablePictureFile += r'c(in|r2|rw)|[hw]dp|heic|sgi|tga|w(al|ebp|mf|bmp|pg)|'
     deduplicablePictureFile = re.compile(deduplicablePictureFile + r'x[bp]m)$')
     sys.stdout.write(r'Visually deduplicating images...')
+    ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
     files = []
@@ -1183,41 +1227,8 @@ if (option_visuallyDedupImages):
                     os.remove(image)
                     actuallyDeduped += 1
 
-    if (done == 1):
-        print('\r1 image removed for being a visual duplicate' + (r' ' * 25) + ('\b' * 25))
-    else:
-        sys.stdout.write('\r' + _num(actuallyDeduped))
-        print(' images removed for being visual duplicates' + (r' ' * 20) + ('\b' * 20))
-
-
-
-# CREATING MORE MEANINGFUL SUBDIRECTORIES
-
-if (not option_keepDirStructure):
-    audioSubdir = os.path.join(targetRootDir, r'Audio')
-    try: os.mkdir(audioSubdir)
-    except: pass
-    documentsSubdir = os.path.join(targetRootDir, r'Documents')
-    try: os.mkdir(documentsSubdir)
-    except: pass
-    fontsSubdir = os.path.join(targetRootDir, r'Fonts')
-    try: os.mkdir(fontsSubdir)
-    except: pass
-    picturesSubdir = os.path.join(targetRootDir, r'Pictures')
-    try: os.mkdir(picturesSubdir)
-    except: pass
-    videosSubdir = os.path.join(targetRootDir, r'Videos')
-    try: os.mkdir(videosSubdir)
-    except: pass
-    txtSubdir = os.path.join(targetRootDir, r'Plain Text')
-    try: os.mkdir(txtSubdir)
-    except: pass
-    codeSubdir = os.path.join(targetRootDir, r'Code')
-    try: os.mkdir(codeSubdir)
-    except: pass
-    miscSubdir = os.path.join(targetRootDir, r'Misc')
-    try: os.mkdir(miscSubdir)
-    except: pass
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# duplicate images_ removed', actuallyDeduped, ellapsedTime)
 
 
 
@@ -1225,40 +1236,45 @@ if (not option_keepDirStructure):
 
 if (not option_keepDirStructure):
     sys.stdout.write(r'Organizing files...')
+    ellapsedTime = time.monotonic()
     done = 0
     files = []
     for path, subdirs, items in os.walk(targetRootDir):
         files += [os.path.join(path, name) for name in items]
     initialTotal = len(files)
+    audioDir, docsDir, fontsDir, picsDirs, videosDir, txtDir, codeDir, miscDir = createSubdirs(
+        targetRootDir,
+        [r'Audio',  r'Documents',  r'Fonts', r'Pictures',
+         r'Videos', r'Plain Text', r'Code',  r'Misc'])
     for file in files:
         if (ambigMediaFile.match(file)): #TODO: test
             try:
                 video = len(MediaInfo.parse(file).video_tracks)
-                files[done] = moveNotReplacing(file, (audioSubdir if video else videosSubdir))
+                files[done] = moveNotReplacing(file, (audioDir if video else videosDir))
             except:
-                files[done] = moveNotReplacing(file, miscSubdir)
+                files[done] = moveNotReplacing(file, miscDir)
         elif (file.endswith(r'.djvu')):
             try:
                 with open(file, r'rb') as djvu:
                     content = djvu.read(32).decode(r'cp1252', r'ignore')
                 document = bool(re.match(r'^AT&TFORM([^\x21-\x7E]*)DJVM', content))
-                files[done] = moveNotReplacing(file, (documentsSubdir if document else picturesSubdir))
+                files[done] = moveNotReplacing(file, (docsDir if document else picsDirs))
             except:
-                files[done] = moveNotReplacing(file, documentsSubdir)
+                files[done] = moveNotReplacing(file, docsDir)
         else:
-            if (file.endswith(r'.txt')): files[done] = moveNotReplacing(file, txtSubdir)
-            elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsSubdir)
-            elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosSubdir)
-            elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioSubdir)
-            elif (documentFile.match(file)): files[done] = moveNotReplacing(file, documentsSubdir)
-            elif (pictureFile.match(file)): files[done] = moveNotReplacing(file, picturesSubdir)
-            elif (codeFile.match(file)): files[done] = moveNotReplacing(file, codeSubdir)
-            else: files[done] = moveNotReplacing(file, miscSubdir)
+            if (file.endswith(r'.txt')): files[done] = moveNotReplacing(file, txtDir)
+            elif (fontFile.match(file)): files[done] = moveNotReplacing(file, fontsDir)
+            elif (videoFile.match(file)): files[done] = moveNotReplacing(file, videosDir)
+            elif (audioFile.match(file)): files[done] = moveNotReplacing(file, audioDir)
+            elif (documentFile.match(file)): files[done] = moveNotReplacing(file, docsDir)
+            elif (pictureFile.match(file)): files[done] = moveNotReplacing(file, picsDirs)
+            elif (codeFile.match(file)): files[done] = moveNotReplacing(file, codeDir)
+            else: files[done] = moveNotReplacing(file, miscDir)
         done += 1
         progress(r'Organizing files...', done, initialTotal)
 
-    if (done == 1): print('\r1 file moved' + (r' ' * 50) + ('\b' * 50))
-    else: print('\r' + _num(done) + ' files moved' + (r' ' * 20) + ('\b' * 20))
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# file_ moved', done, ellapsedTime)
 
 
 
@@ -1266,6 +1282,7 @@ if (not option_keepDirStructure):
 
 if (not option_keepDirStructure):
     sys.stdout.write(r'Splitting files into subdirectories...')
+    ellapsedTime = time.monotonic()
     done = 0
     j = 0
     maxFilesPerDir = 250
@@ -1292,11 +1309,9 @@ if (not option_keepDirStructure):
                 progress(r'Splitting files into subdirectories...', done, initialTotal)
         j += i
 
-    if (done < maxFilesPerDir):
-        sys.stdout.write('\r' + (r' ' * 75) + '\r')
-    else:
-        sys.stdout.write('\r' + _num(done) + ' files split into ' + _num(j) + ' subdirectories')
-        print((r' ' * 20) + ('\b' * 20))
+    ellapsedTime = time.monotonic() - ellapsedTime
+    if (done <= maxFilesPerDir): _clearLine()
+    else: stepConclusion(r'# file_ split into ' + str(j) + ' subdirectories', done, ellapsedTime)
 
 
 
