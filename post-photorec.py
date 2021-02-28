@@ -62,6 +62,7 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
   -I        Remove duplicate images (visual duplicates) (largest ones kept)
   -J        Do not remove junk files (well known to be usually unwanted)
   -k        Keep directory structure (do not move files)
+  -N        Do not rename any file (extensions fixing not included)
   -n        Only rename/remove files with photorec-generated names
   -Q        No real-time progress information
   -q        Quiet mode (no verbosity)
@@ -758,12 +759,13 @@ option_removeKnownJunk = r'-J' not in sys.argv
 if (not option_removeKnownJunk):
     def removeJunkFile( filePath ): pass
 
-option_dedupAcrossExtensions = r'-d' in sys.argv
 option_removeDuplicates = r'-D' not in sys.argv
-option_keepEmptyFiles = r'-z' in sys.argv
-option_keepDirStructure = r'-k' in sys.argv
-option_photorecNamesOnly = r'-n' in sys.argv
+option_dedupAcrossExtensions = r'-d' in sys.argv
 option_visuallyDedupImages = r'-I' in sys.argv
+option_keepDirStructure = r'-k' in sys.argv
+option_skipRenaming = r'-N' in sys.argv
+option_photorecNamesOnly = r'-n' in sys.argv
+option_keepEmptyFiles = r'-z' in sys.argv
 
 
 
@@ -1045,34 +1047,35 @@ for i in range(0, len(files)):
         buffer.append(files[i])
 files = buffer
 
-files = renamingLoop(files, r'.java', javaCSharpFilename)
-files = renamingLoop(files, r'.cs', javaCSharpFilename)
 
+# SMARTLY RENAMING FILES
 
+if (not option_skipRenaming):
+    files = renamingLoop(files, r'.java', javaCSharpFilename)
+    files = renamingLoop(files, r'.cs', javaCSharpFilename)
 
-# NAMING IMAGE FILES
+    files = renamingLoop(files, pictureFile, imageFilename)
 
-files = renamingLoop(files, pictureFile, imageFilename)
+    files = renamingLoop(files, r'.mp4', ambigMediaFilename)
+    files = renamingLoop(files, ambigMediaFile, ambigMediaFilename)
+    files = renamingLoop(files, audioFile, songFilename)
+    files = renamingLoop(files, videoFile, videoFilename)
 
+    files = renamingLoop(files, r'.pdf', PDFFilename)
+    files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt|ole)$'), OLEDocumentFilename)
+    files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt)x$'), openXMLDocumentFilename)
+    files = renamingLoop(files, re.compile(r'^.+\.f?od[gpst]$'), openDocumentFilename)
+    files = renamingLoop(files, re.compile(r'^.+\.[a-z]?html?$'), HTMLFilename)
+    files = renamingLoop(files, r'.epub', EPUBFilename)
 
+    files = renamingLoop(files, fontFile, fontFilename)
 
-# NAMING MEDIA FILES
+    files = renamingLoop(files, r'.torrent', torrentFilename)
 
-files = renamingLoop(files, r'.mp4', ambigMediaFilename)
-files = renamingLoop(files, ambigMediaFile, ambigMediaFilename)
-files = renamingLoop(files, audioFile, songFilename)
-files = renamingLoop(files, videoFile, videoFilename)
+    files = renamingLoop(files, r'.wpl', windowsPlaylistFilename)
+    files = renamingLoop(files, r'.cue', cueSheetFilename)
 
-
-
-# NAMING DOCUMENT FILES
-
-files = renamingLoop(files, r'.pdf', PDFFilename)
-files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt|ole)$'), OLEDocumentFilename)
-files = renamingLoop(files, re.compile(r'^.+\.(doc|xls|ppt)x$'), openXMLDocumentFilename)
-files = renamingLoop(files, re.compile(r'^.+\.f?od[gpst]$'), openDocumentFilename)
-files = renamingLoop(files, re.compile(r'^.+\.[a-z]?html?$'), HTMLFilename)
-files = renamingLoop(files, r'.epub', EPUBFilename)
+    files = renamingLoop(files, r'.reg', windowsRegistryFilename)
 
 
 
@@ -1103,31 +1106,6 @@ for i in range(0, len(files)):
     else:
         buffer.append(files[i])
 files = buffer
-
-
-
-# NAMING FONT FILES
-
-files = renamingLoop(files, fontFile, fontFilename)
-
-
-
-# NAMING TORRENT FILES
-
-files = renamingLoop(files, r'.torrent', torrentFilename)
-
-
-
-# NAMING PLAYLIST AND CUE FILES
-
-files = renamingLoop(files, r'.wpl', windowsPlaylistFilename)
-files = renamingLoop(files, r'.cue', cueSheetFilename)
-
-
-
-# NAMING WINDOWS REGISTRY FILES
-
-files = renamingLoop(files, r'.reg', windowsRegistryFilename)
 
 
 
@@ -1180,13 +1158,15 @@ if (option_visuallyDedupImages):
     initialTotal = len(files)
     for i in range(0, len(files)):
         if (not files[i]): continue
-        image = Image.open(files[i]).convert(r'RGB')
         done += 1
+        try: image = Image.open(files[i]).convert(r'RGBA')
+        except: continue
         progress(r'Visually deduplicating images...', done, initialTotal)
         currentGroup = [((image.size[0] + image.size[1]), files[i])]
         for j in range((i + 1), len(files)):
             if (not files[j]): continue
-            anotherImage = Image.open(files[j]).convert(r'RGB')
+            try: anotherImage = Image.open(files[j]).convert(r'RGBA')
+            except: continue
             if (sameImages(image, anotherImage)):
                 currentGroup.append(((anotherImage.size[0] + anotherImage.size[1]), files[j]))
                 files[j] = None
@@ -1297,7 +1277,6 @@ if (not option_keepDirStructure):
             continue
         files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
         i = 0
-        j += len(files)
         for chunk in files:
             i += 1
             subsubdir = os.path.join(subdir, str(i))
@@ -1311,6 +1290,7 @@ if (not option_keepDirStructure):
                 os.rename(file, os.path.join(subsubdir, os.path.split(file)[-1]))
                 done += 1
                 progress(r'Splitting files into subdirectories...', done, initialTotal)
+        j += i
 
     if (done < maxFilesPerDir):
         sys.stdout.write('\r' + (r' ' * 75) + '\r')
