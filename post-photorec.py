@@ -25,7 +25,8 @@
 #
 # =============================================================================================
 
-import sys, os, stat, re, mmap, codecs, json, gzip, filecmp, time
+import sys, os, stat, re, mmap, codecs, json, gzip, filecmp, time, warnings
+from multiprocessing import Pool, Value as SharedValue
 from unicodedata import category as ucategory, normalize as unormalize
 from zipfile import ZipFile as ZIPFile
 
@@ -81,10 +82,11 @@ def error( message, whatToReturn ):
 def progress( message, done, total ):
     progressLen = (len(str(total)) * 2) + 1
     p = '\x1B[2m' + str(done) + r'/' + str(total) + '\x1B[0m'
-    sys.stdout.write('\r' + message + r' ' + p.ljust(progressLen) + ('\b' * (progressLen - len(p))))
+    print(('\r' + message + r' ' + p.ljust(progressLen)), end=r'', flush=True)
+    print(('\b' * (progressLen - len(p))), end=r'', flush=True)
 
 def _clearLine():
-    sys.stdout.write('\r' + (r' ' * 80) + '\r')
+    print('\r' + (r' ' * 80) + '\r', end=r'', flush=True)
 
 def _num( x ):
     return (str(x) if (x > 0) else r'No')
@@ -110,7 +112,7 @@ def stepConclusion( message, done, duration ):
     message = message.replace(r'#', _num(done))
     if (done and (duration >= 0.01)):
         message += ' in ' + formatedDuration(duration)
-    sys.stdout.write(message.replace(r'_', (r'' if (initialTotal == 1) else r's')) + '\n')
+    print(message.replace(r'_', (r'' if (initialTotal == 1) else r's')) + '\n', end=r'', flush=True)
 
 
 
@@ -566,9 +568,33 @@ def windowsRegistryFilename( currentName ):
 
 # VISUAL IMAGE DEDUPLICATION FUNCTIONS
 
-def sameRatio( imageA, imageB ):
-    Aw, Ah = imageA.size
-    Bw, Bh = imageB.size
+def averageRGB( image ):
+    data = list(image.getdata())
+    avgR, avgG, avgB = (0, 0, 0)
+    for R, G, B, _ in data:
+        avgR += R
+        avgG += G
+        avgB += B
+    return (round(avgR / len(data)), round(avgG / len(data)), round(avgB / len(data)))
+
+def similarEnoughRGBColors( RGB1, RGB2 ):
+    if ((RGB1 is None) or (RGB2 is None)): return True
+    RGB = (abs(RGB1[0] - RGB2[0]), abs(RGB1[1] - RGB2[1]), abs(RGB1[2] - RGB2[2]) >= 10)
+    if ((RGB[0] > 10) or (RGB[1] > 10) or (RGB[2] > 10) or ((RGB[0] + RGB[1] + RGB[2]) > 15)):
+        return False
+    return True
+
+def imageWithInfo( imagePath ):
+    try: image = Image.open(imagePath, r'r').convert(r'RGB')
+    except: return (0, (-999, -999), (999, 999, 999), None)
+    if (image.size[0] >= image.size[1]):
+        return (int((image.size[0] / image.size[1]) * 1000), image.size, None, imagePath)
+    else:
+        return (int((image.size[1] / image.size[0]) * (-1000)), image.size, None, imagePath)
+
+def sameRatio( A, B ):
+    Aw, Ah = A
+    Bw, Bh = B
     if (abs(Ah - Aw) < (((Ah + Aw) / 2) * 0.01)):
         if (abs(Bh - Bw) > (((Bh + Bw) / 2) * 0.01)): return False
         ratioA = 1
@@ -586,24 +612,13 @@ def sameRatio( imageA, imageB ):
 def similarEnoughImages( imageA, imageB, resizing ):
     A = list(imageA.getdata())
     B = list(imageB.getdata())
-    tolerance = 5 + (min(resizing, 10) // 2)
     diff = []
     for i in range(0, len(A)):
-        diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]), abs(A[i][2] - B[i][2])]
-    return ((sum(diff) / len(diff)) < tolerance)
-
-def similarEnoughImages2( imageA, imageB, resizing ):
-    A = imageA.getdata()
-    B = imageB.getdata()
-    tolerance = 5 + (min(resizing, 10) // 2)
-    diff = 0
-    for i in range(0, len(A)):
-        diff += (abs(A[i][0] - B[i][0]) + abs(A[i][1] - B[i][1]) +
-                 abs(A[i][2] - B[i][2]) + abs(A[i][3] - B[i][3]))
-    return ((diff / (len(A) * 4)) < tolerance)
+        diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]),
+                 abs(A[i][2] - B[i][2]), abs(A[i][3] - B[i][3])]
+    return ((sum(diff) / len(diff)) < (5 + (min(resizing, 10) // 2)))
 
 def sameImages( imageA, imageB ):
-    if (not sameRatio(image, anotherImage)): return False
     sizeA = imageA.size[0] + imageA.size[1]
     sizeB = imageB.size[0] + imageB.size[1]
     if (imageA.size > imageB.size): imageA = imageA.resize(imageB.size)
@@ -712,6 +727,12 @@ photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 
 
 
+# SILENCING WARNINGS FOR THEY (THE ONES EXPECTED) ARE NOT RELEVANT
+
+warnings.simplefilter(r'ignore')
+
+
+
 # PROCESSING COMMAND LINE ARGUMENTS
 
 if (r'-h' in sys.argv): helpMessage()
@@ -776,7 +797,7 @@ if (photoRecTarget):
             photoRecProc.wait()
             if (photoRecProc.returncode and (len(os.listdir(targetRootDir)) == 0)):
                 error("Could not run PhotoRec", photoRecProc.returncode)
-        sys.stdout.write('\n')
+        print('\n', end=r'', flush=True)
     except OSError:
         error("Could not run PhotoRec", 1)
 
@@ -809,7 +830,7 @@ option_keepEmptyFiles = r'-z' in sys.argv
 
 # GENERATING THE LIST OF FILES TO BE PROCESSED
 
-sys.stdout.write(r'Listing files...')
+print(r'Listing files...', end=r'', flush=True)
 ellapsedTime = time.monotonic()
 files = []
 for path, subdirs, items in os.walk(targetRootDir):
@@ -830,7 +851,7 @@ stepConclusion(r'# file_ found', initialTotal, ellapsedTime)
 # REMOVING EMPTY FILES
 
 if (not option_keepEmptyFiles):
-    sys.stdout.write(r'Removing empty files...')
+    print(r'Removing empty files...', end=r'', flush=True)
     j = 0
     ellapsedTime = time.monotonic()
     if (files[0][0] == 0):
@@ -851,12 +872,12 @@ if (not option_keepEmptyFiles):
 # DEDUPLICATING FILES
 
 if (option_removeDuplicates):
-    sys.stdout.write(r'Deduplicating files...')
+    print(r'Deduplicating files...', end=r'', flush=True)
     ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
     for i in range(0, len(files)):
-        if (files[i][0] == 0): continue
+        if (files[i][0] <= 0): continue
         for j in range((i + 1), len(files)):
             if (files[i][0] != files[j][0]): break
             if (files[i][1] == files[j][1]):
@@ -886,7 +907,7 @@ if (option_photorecNamesOnly):
     files = sorted([file for size, ext, file in files if ((size > 0) and photorecName.match(file))])
 else:
     files = sorted([file for size, ext, file in files if (size > 0)])
-sys.stdout.write(r'Analyzing files...')
+print(r'Analyzing files...', end=r'', flush=True)
 done = 0
 
 
@@ -1165,7 +1186,7 @@ else: print(_num(removedJunkFiles) + ' junk files removed')
 # REMOVING FILES BY EXTENSION (IF SPECIFIED)
 
 if (len(junkExtensions) > 0):
-    sys.stdout.write(r'Removing files by extension...')
+    print(r'Removing files by extension...', end=r'', flush=True)
     ellapsedTime = time.monotonic()
     done = 0
     if (option_photorecNamesOnly):
@@ -1192,7 +1213,7 @@ if (option_visuallyDedupImages):
     deduplicablePictureFile += r'j(p[2efx]|[np]g|peg|xr)|m(ic|po|sp|ng)|p(c[dx]|ng|[abgnp]m)|'
     deduplicablePictureFile += r'c(in|r2|rw)|[hw]dp|heic|sgi|tga|w(al|ebp|mf|bmp|pg)|'
     deduplicablePictureFile = re.compile(deduplicablePictureFile + r'x[bp]m)$')
-    sys.stdout.write(r'Visually deduplicating images...')
+    print(r'Visually deduplicating images...', end=r'', flush=True)
     ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
@@ -1200,20 +1221,39 @@ if (option_visuallyDedupImages):
     for path, subdirs, items in os.walk(targetRootDir):
         files += [os.path.join(path, name) for name in items if deduplicablePictureFile.match(name)]
     initialTotal = len(files)
+    i = SharedValue(r'i', 0)
+    def imageWithInfoAndProgress( imageFile ):
+        with i.get_lock(): i.value += 1
+        progress(r'Preanalysing found images...', i.value, initialTotal)
+        return imageWithInfo(imageFile)
+    with Pool(len(os.sched_getaffinity(0))) as p:
+        files = p.map(imageWithInfoAndProgress, files)
+        files = sorted(sorted(files, key=lambda f: (f[1][0] + f[1][1]), reverse=True))
     for i in range(0, len(files)):
-        if (not files[i]): continue
+        if (not files[i][-1]): continue
         done += 1
-        try: image = Image.open(files[i]).convert(r'RGBA')
-        except: continue
+        image = None
         progress(r'Visually deduplicating images...', done, initialTotal)
-        currentGroup = [((image.size[0] + image.size[1]), files[i])]
+        currentGroup = [((files[i][1][0] + files[i][1][1]), files[i][-1])]
         for j in range((i + 1), len(files)):
-            if (not files[j]): continue
-            try: anotherImage = Image.open(files[j]).convert(r'RGBA')
-            except: continue
+            if (not files[j][-1]): continue
+            if (not sameRatio(files[i][1], files[j][1])): break
+            if (not similarEnoughRGBColors(files[i][2], files[j][2])): continue
+            if (image is None):
+                try: image = Image.open(files[i][-1]).convert(r'RGBA')
+                except: break
+                if (files[i][2] is None):
+                    files[i] = (files[i][0], files[i][1], averageRGB(image), files[i][-1])
+            try:
+                anotherImage = Image.open(files[j][-1]).convert(r'RGBA')
+                if (files[j][2] is None):
+                    files[j] = (files[j][0], files[j][1], averageRGB(anotherImage), files[j][-1])
+            except:
+                files[j] = (0, files[j][1], files[j][2], None)
+                continue
             if (sameImages(image, anotherImage)):
-                currentGroup.append(((anotherImage.size[0] + anotherImage.size[1]), files[j]))
-                files[j] = None
+                currentGroup.append(((files[j][1][0] + files[j][1][1]), files[j][-1]))
+                files[j] = (0, files[j][1], files[j][2], None)
                 done += 1
                 progress(r'Visually deduplicating images...', done, initialTotal)
         if (len(currentGroup) > 1):
@@ -1228,14 +1268,14 @@ if (option_visuallyDedupImages):
                     actuallyDeduped += 1
 
     ellapsedTime = time.monotonic() - ellapsedTime
-    stepConclusion(r'# duplicate images_ removed', actuallyDeduped, ellapsedTime)
+    stepConclusion(r'# duplicate image_ removed', actuallyDeduped, ellapsedTime)
 
 
 
 # SORTING FILES INTO MORE MEANINGFUL SUBDIRECTORIES
 
 if (not option_keepDirStructure):
-    sys.stdout.write(r'Organizing files...')
+    print(r'Organizing files...', end=r'', flush=True)
     ellapsedTime = time.monotonic()
     done = 0
     files = []
@@ -1281,8 +1321,9 @@ if (not option_keepDirStructure):
 # FURTHER SPLITTING FILES INTO SUB-SUBDIRECTORIES
 
 if (not option_keepDirStructure):
-    sys.stdout.write(r'Splitting files into subdirectories...')
+    print(r'Splitting files into subdirectories...', end=r'', flush=True)
     ellapsedTime = time.monotonic()
+    ignored = 0
     done = 0
     j = 0
     maxFilesPerDir = 250
@@ -1290,7 +1331,7 @@ if (not option_keepDirStructure):
         files = [os.path.join(subdir, file) for file in os.listdir(subdir)]
         files = [file for file in files if os.path.isfile(file)]
         if (len(files) <= maxFilesPerDir):
-            done += len(files)
+            ignored += len(files)
             continue
         files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
         i = 0
@@ -1306,27 +1347,29 @@ if (not option_keepDirStructure):
             for file in chunk:
                 os.rename(file, os.path.join(subsubdir, os.path.split(file)[-1]))
                 done += 1
-                progress(r'Splitting files into subdirectories...', done, initialTotal)
+                progress(r'Splitting files into subdirectories...', (ignored + done), initialTotal)
         j += i
 
     ellapsedTime = time.monotonic() - ellapsedTime
-    if (done <= maxFilesPerDir): _clearLine()
+    if (j < 2): _clearLine()
     else: stepConclusion(r'# file_ split into ' + str(j) + ' subdirectories', done, ellapsedTime)
 
 
 
 # REMOVING EMPTY SUBDIRECTORIES LEFT BEHIND
 
-for path, subdirs, items in os.walk(targetRootDir):
-    try: os.rmdir(path)
-    except: pass
+for path, subdirs, items in os.walk(targetRootDir, topdown=False):
+    relativeTo = os.path.join(targetRootDir, path)
+    for subdir in subdirs:
+        try: os.removedirs(os.path.join(relativeTo, subdir))
+        except: pass
 
 
 
 # FIXING FILE OWNERSHIPS IF RUNNING AS ROOT
 
 if (option_runningWithSudo):
-    sys.stdout.write('Fixing ownership of files and directories...')
+    print('Fixing ownership of files and directories...', end=r'', flush=True)
     for path, subdirs, items in os.walk(targetRootDir):
         for name in items: os.chown(os.path.join(path, name), uid, gid)
         for name in subdirs: os.chown(os.path.join(path, name), uid, gid)
