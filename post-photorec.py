@@ -939,45 +939,17 @@ if (option_removeKnownJunk):
 
 
 
-# IMPROVING SOME FILENAMES PHOTOREC SOMETIMES PROVIDES
-
-prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
-prenamedFile1 = re.compile(prenamedFile1 + r'd2s|ocx)$', re.IGNORECASE)
-prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
-prenamedFile2 = re.compile(prenamedFile2 + r'pp[st])$', re.IGNORECASE)
-def fixedPhotoRecName1( match ):
-    return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
-def fixedPhotoRecName2( match ):
-    return (re.sub(r'\s+', r' ', match.group(1).replace(r'_', r' ')).strip() + r'.' +
-            match.group(2).lower().replace(r'_', r'.'))
-buffer = []
-for i in range(0, len(files)):
-    filename = files[i].rsplit(os.path.sep, 1)[-1]
-    if (prenamedFile1.match(filename)):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], prenamedFile1.sub(fixedPhotoRecName1, filename), count=True)
-    elif (prenamedFile2.match(filename)):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename), count=True)
-    else:
-        buffer.append(files[i])
-files = buffer
-
-
-
 # REMOVING UNSUPPORTED FILES FROM THE LIST
 
-unsupported = r'^.*\.(d2s|sys|[ao]|json|class|m3u|log|'
-unsupported = re.compile(unsupported + r'pyc)$')
+unsupported = r'^.*\.([ao]|json|class|m3u|log|pyc)$'
+unsupported = re.compile(unsupported)
 files = [file for file in files if (not unsupported.match(file))]
 done = initialTotal - len(files)
 progress(r'Analyzing files...', done, initialTotal)
 
 
 
-# NAMING PLAIN TEXT FILES
+# PROCESSING PLAIN TEXT FILES
 
 logLine1 = r'(^|\n)(19|2[01])[0-9]{2}-(0[1-9]|1[012])-([012][0-9]|3[01])[\t ]'
 logLine1 = re.compile(logLine1 + r'[0-9][0-9]:[0-9][0-9]:[0-9][0-9]')
@@ -1083,7 +1055,7 @@ files = buffer
 
 
 
-# NAMING CODE FILES
+# PROCESSING CODE FILES
 
 variableName = r'^[a-zA-Z_][a-zA-Z0-9_]*'
 cppLine = r'((^|\n)[\t ]*(namespace\s*' + variableName + '\s*\{|class\s*' + variableName
@@ -1111,9 +1083,37 @@ for i in range(0, len(files)):
 files = buffer
 
 
+
 # SMARTLY RENAMING FILES
 
 if (not option_skipRenaming):
+    # Improving Some Filenames Photorec Sometimes Provides
+    prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
+    prenamedFile1 = re.compile(prenamedFile1 + r'd2s|ocx)$', re.IGNORECASE)
+    prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
+    prenamedFile2 = re.compile(prenamedFile2 + r'pp[st])$', re.IGNORECASE)
+    def fixedPhotoRecName1( match ):
+        return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
+    def fixedPhotoRecName2( match ):
+        return (re.sub(r'\s+', r' ', match.group(1).replace(r'_', r' ')).strip() + r'.' +
+                match.group(2).lower().replace(r'_', r'.'))
+    buffer = []
+    for i in range(0, len(files)):
+        filename = files[i].rsplit(os.path.sep, 1)[-1]
+        if (prenamedFile1.match(filename)):
+            done += 1
+            progress(r'Analyzing files...', done, initialTotal)
+            rename(files[i], prenamedFile1.sub(fixedPhotoRecName1, filename), count=True)
+        elif (prenamedFile2.match(filename)):
+            done += 1
+            progress(r'Analyzing files...', done, initialTotal)
+            rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename), count=True)
+        else:
+            buffer.append(files[i])
+    unsupported = re.compile(r'^.*\.(d2s|(sys|exe|dll|ocx)(\.mui)?)$')
+    files = [file for file in buffer if (not unsupported.match(file))]
+    done = initialTotal - len(files)
+
     files = renamingLoop(files, r'.java', javaCSharpFilename)
     files = renamingLoop(files, r'.cs', javaCSharpFilename)
 
