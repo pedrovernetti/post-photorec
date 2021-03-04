@@ -53,7 +53,7 @@ For a given directory containing unsorted and meaninglessly-named files, removes
 the empty ones, deduplicates them, renames them more meaningfully, fixes
 some file extensions and organizes everything in a better directory structure.
 
-Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
+Example: """ + command + """ -r log,xml,pyc -n -I /path/to/recovered_files_dir
 
  Options:
 
@@ -63,7 +63,7 @@ Example: """ + command + """ -r log,xml,pyc -n /path/to/recovered_files_dir
   -I        Remove duplicate images (visual duplicates) (largest ones kept)
   -J        Do not remove junk files (well known to be usually unwanted)
   -k        Keep directory structure (do not move files)
-  -N        Do not rename any file (extensions fixing not included)
+  -N        Do not rename any file
   -n        Only rename/remove files with photorec-generated names
   -Q        No real-time progress information
   -q        Quiet mode (no verbosity)
@@ -127,7 +127,7 @@ def longestCommonPrefix( stringList ):
     return shortest
 
 def split( l, chunkMaxSize ):
-    for i in range(0, len(l), chunkMaxSize):
+    for i in range(len(l), chunkMaxSize):
         yield l[i:(i + chunkMaxSize)]
 
 
@@ -183,7 +183,7 @@ def fileContains( filePath, what ):
 
 def removeFilesContaining( files, extension, what ):
     buffer = []
-    for i in range(0, len(files)):
+    for i in range(len(files)):
         if (files[i].endswith(extension)):
             if (fileContains(files[i], what)):
                 os.remove(files[i])
@@ -569,12 +569,15 @@ def windowsRegistryFilename( currentName ):
 # VISUAL IMAGE DEDUPLICATION FUNCTIONS
 
 def averageRGB( image ):
+    if (not image.mode.startswith(r'RGB')):
+        image.convert(r'RGB' if (image.mode[-1] != r'A') else r'RGBA')
     data = list(image.getdata())
-    avgR, avgG, avgB = (0, 0, 0)
-    for R, G, B, _ in data:
-        avgR += R
-        avgG += G
-        avgB += B
+    if (not isinstance(data[0], tuple)): return None
+    avgR, avgG, avgB = 0, 0, 0
+    for RGB in data:
+        avgR += RGB[0]
+        avgG += RGB[1]
+        avgB += RGB[2]
     return (round(avgR / len(data)), round(avgG / len(data)), round(avgB / len(data)))
 
 def similarEnoughRGBColors( RGB1, RGB2 ):
@@ -612,8 +615,22 @@ def sameRatio( A, B ):
 def similarEnoughImages( imageA, imageB, resizing ):
     A = list(imageA.getdata())
     B = list(imageB.getdata())
+    if (not (isinstance(A[0], tuple) and isinstance(B[0], tuple) and
+             (len(A[0]) == 3) and (len(B[0]) == 3))):
+        return False
     diff = []
-    for i in range(0, len(A)):
+    for i in range(len(A)):
+        diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]), abs(A[i][2] - B[i][2])]
+    return ((sum(diff) / len(diff)) < (5 + (min(resizing, 10) // 2)))
+
+def similarEnoughImagesWithAlpha( imageA, imageB, resizing ):
+    A = list(imageA.getdata())
+    B = list(imageB.getdata())
+    if (not (isinstance(A[0], tuple) and isinstance(B[0], tuple) and
+             (len(A[0]) == 4) and (len(B[0]) == 4))):
+        return False
+    diff = []
+    for i in range(len(A)):
         diff += [abs(A[i][0] - B[i][0]), abs(A[i][1] - B[i][1]),
                  abs(A[i][2] - B[i][2]), abs(A[i][3] - B[i][3])]
     return ((sum(diff) / len(diff)) < (5 + (min(resizing, 10) // 2)))
@@ -623,7 +640,14 @@ def sameImages( imageA, imageB ):
     sizeB = imageB.size[0] + imageB.size[1]
     if (imageA.size > imageB.size): imageA = imageA.resize(imageB.size)
     elif (imageA.size < imageB.size): imageB = imageB.resize(imageA.size)
-    return similarEnoughImages(imageA, imageB, (max(sizeA, sizeB) / min(sizeA, sizeB)))
+    if ((imageA.mode[-1] == r'A') or (imageB.mode[-1] == r'A')):
+        if (imageA.mode != r'RGBA'): imageA.convert(r'RGBA')
+        if (imageB.mode != r'RGBA'): imageB.convert(r'RGBA')
+        return similarEnoughImagesWithAlpha(imageA, imageB, (max(sizeA, sizeB) / min(sizeA, sizeB)))
+    else:
+        if (imageA.mode != r'RGB'): imageA.convert(r'RGB')
+        if (imageB.mode != r'RGB'): imageB.convert(r'RGB')
+        return similarEnoughImages(imageA, imageB, (max(sizeA, sizeB) / min(sizeA, sizeB)))
 
 
 
@@ -672,7 +696,7 @@ def rename( filePath, newName, count=False ):
 
 def createSubdirs( rootDirPath, subdirs ):
     subdirPaths = [rootDirPath] * len(subdirs)
-    for i in range(0, len(subdirs)):
+    for i in range(len(subdirs)):
         subdirPath = os.path.join(rootDirPath, subdirs[i])
         try: os.mkdir(subdirPath)
         except FileExistsError: pass
@@ -693,7 +717,7 @@ def renamingLoop( files, target, filenameFunction ):
         def isTarget( filePath ): return target.match(files[i])
     else:
         return
-    for i in range(0, len(files)):
+    for i in range(len(files)):
         if (isTarget(files[i])):
             done += 1
             progress(r'Analyzing files...', done, initialTotal)
@@ -855,7 +879,7 @@ if (not option_keepEmptyFiles):
     j = 0
     ellapsedTime = time.monotonic()
     if (files[0][0] == 0):
-        for i in range(0, len(files)):
+        for i in range(len(files)):
             if (files[i][0] != 0): break
             j += 1
         for i in range(0, j):
@@ -876,7 +900,7 @@ if (option_removeDuplicates):
     ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
-    for i in range(0, len(files)):
+    for i in range(len(files)):
         if (files[i][0] <= 0): continue
         for j in range((i + 1), len(files)):
             if (files[i][0] != files[j][0]): break
@@ -964,7 +988,7 @@ gpd_pcfNameLine = re.compile(r'\n\*(PC|GPD)FileName:[\t ]*\x22(.*\.[GgPp][Pp][Dd
 windowsJunkXMLLine = re.compile('<(assemblyIdentity|component) name=\x22Microsoft-Windows-')
 maybeJSON = re.compile(r'^\s*[\[{]')
 buffer = []
-for i in range(0, len(files)):
+for i in range(len(files)):
     if (files[i].endswith(r'.txt') and os.path.isfile(files[i])):
         with open(files[i], r'rb') as f:
             content = decodedFileContent(f)
@@ -1018,7 +1042,7 @@ ssaLine = re.compile(r'(^|\n)Dialogue: [0-9]+,[0-9]+:([0-5][0-9]|60):([0-5][0-9]
 desktopEntryNameLine1 = re.compile(r'\nExec=([^\n\t ]+)')
 desktopEntryNameLine2 = re.compile(r'\nName=([^\n#]*)')
 buffer = []
-for i in range(0, len(files)):
+for i in range(len(files)):
     if (files[i].endswith(r'.ini') and os.path.isfile(files[i])):
         with open(files[i], r'rb') as f:
             content = decodedFileContent(f)
@@ -1064,7 +1088,7 @@ cppLine = re.compile(cppLine + '::|\x22\x22_' + variableName + r')')
 cComments = re.compile(r'(//.*?\n|/\*.*?\*/)')
 cStrings = re.compile('(\x22.*?[^\\\\]\x22|\x27.*?[^\\\\]\x27)')
 buffer = []
-for i in range(0, len(files)):
+for i in range(len(files)):
     if (files[i].endswith(r'.java')):
         with open(files[i], r'rb') as f:
             content = decodedFileContent(f)
@@ -1098,7 +1122,7 @@ if (not option_skipRenaming):
         return (re.sub(r'\s+', r' ', match.group(1).replace(r'_', r' ')).strip() + r'.' +
                 match.group(2).lower().replace(r'_', r'.'))
     buffer = []
-    for i in range(0, len(files)):
+    for i in range(len(files)):
         filename = files[i].rsplit(os.path.sep, 1)[-1]
         if (prenamedFile1.match(filename)):
             done += 1
@@ -1113,6 +1137,7 @@ if (not option_skipRenaming):
     unsupported = re.compile(r'^.*\.(d2s|(sys|exe|dll|ocx)(\.mui)?)$')
     files = [file for file in buffer if (not unsupported.match(file))]
     done = initialTotal - len(files)
+    progress(r'Analyzing files...', done, initialTotal)
 
     files = renamingLoop(files, r'.java', javaCSharpFilename)
     files = renamingLoop(files, r'.cs', javaCSharpFilename)
@@ -1145,7 +1170,7 @@ if (not option_skipRenaming):
 # NAMING ARCHIVES AND COMPRESSED FILES
 
 buffer = []
-for i in range(0, len(files)):
+for i in range(len(files)):
     if (files[i].endswith(r'.html.gz')):
         done += 1
         progress(r'Analyzing files...', done, initialTotal)
@@ -1229,7 +1254,7 @@ if (option_visuallyDedupImages):
     with Pool(len(os.sched_getaffinity(0))) as p:
         files = p.map(imageWithInfoAndProgress, files)
         files = sorted(sorted(files, key=lambda f: (f[1][0] + f[1][1]), reverse=True))
-    for i in range(0, len(files)):
+    for i in range(len(files)):
         if (not files[i][-1]): continue
         done += 1
         image = None
@@ -1240,17 +1265,17 @@ if (option_visuallyDedupImages):
             if (not sameRatio(files[i][1], files[j][1])): break
             if (not similarEnoughRGBColors(files[i][2], files[j][2])): continue
             if (image is None):
-                try: image = Image.open(files[i][-1]).convert(r'RGBA')
+                try: image = Image.open(files[i][-1])
                 except: break
                 if (files[i][2] is None):
                     files[i] = (files[i][0], files[i][1], averageRGB(image), files[i][-1])
             try:
-                anotherImage = Image.open(files[j][-1]).convert(r'RGBA')
-                if (files[j][2] is None):
-                    files[j] = (files[j][0], files[j][1], averageRGB(anotherImage), files[j][-1])
+                anotherImage = Image.open(files[j][-1])
             except:
                 files[j] = (0, files[j][1], files[j][2], None)
                 continue
+            if (files[j][2] is None):
+                files[j] = (files[j][0], files[j][1], averageRGB(anotherImage), files[j][-1])
             if (sameImages(image, anotherImage)):
                 currentGroup.append(((files[j][1][0] + files[j][1][1]), files[j][-1]))
                 files[j] = (0, files[j][1], files[j][2], None)
