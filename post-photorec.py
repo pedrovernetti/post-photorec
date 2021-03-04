@@ -126,9 +126,11 @@ def longestCommonPrefix( stringList ):
             if (other[i] != currentChar): return shortest[:i]
     return shortest
 
-def split( l, chunkMaxSize ):
-    for i in range(len(l), chunkMaxSize):
-        yield l[i:(i + chunkMaxSize)]
+def split( l, chunkSize ):
+    buffer = []
+    for i in range(0, len(l), chunkSize):
+        buffer.append(l[i:(i + chunkSize)])
+    return buffer
 
 
 
@@ -649,6 +651,20 @@ def sameImages( imageA, imageB ):
         if (imageB.mode != r'RGB'): imageB.convert(r'RGB')
         return similarEnoughImages(imageA, imageB, (max(sizeA, sizeB) / min(sizeA, sizeB)))
 
+def removeSmallerVisualDuplicates( duplicatesGroup ):
+    deduped = 0
+    if (len(duplicatesGroup) > 1):
+        duplicatesGroup = sorted(duplicatesGroup)
+        largestSize = duplicatesGroup[-1][0]
+        largest = [image for size, image in duplicatesGroup if (size >= largestSize)]
+        if (len(largest) == 1): largest = largest[0]
+        else: largest = max(largest, key=lambda f: os.stat(f).st_size)
+        for size, image in duplicatesGroup:
+            if ((image != largest) and os.path.exists(image)):
+                os.remove(image)
+                deduped += 1
+    return deduped
+
 
 
 # SPECIAL FILE MANIPULATION FUNCTIONS
@@ -900,11 +916,25 @@ if (option_removeDuplicates):
     ellapsedTime = time.monotonic()
     done = 0
     actuallyDeduped = 0
+    from struct import unpack
+    signatures, tails = [0] * len(files), [0] * len(files)
     for i in range(len(files)):
-        if (files[i][0] <= 0): continue
+        try:
+            with open(files[i], r'rb') as f:
+                signatures[i] = unpack(r'i', f.read(4))[0]
+                f.seek(-4, 2)
+                tails[i] = unpack(r'i', f.read(4))[0]
+        except:
+            signatures[i], tails[i] = None, None
+        progress(r'Preanalysing found files for deduplication...', i, initialTotal)
+    _clearLine()
+    for i in range(len(files)):
+        if (files[i][0] == -1): continue
         for j in range((i + 1), len(files)):
-            if (files[i][0] != files[j][0]): break
-            if (files[i][1] == files[j][1]):
+            if (files[j][0] == -1): continue
+            elif (files[i][0] != files[j][0]): break
+            elif ((signatures[i] != signatures[j]) or (tails[i] != tails[j])): continue
+            elif (files[i][1] == files[j][1]):
                 if (not os.path.exists(files[i][2])):
                     files[j] = (-1, r'/', files[i][2])
                     break
@@ -919,6 +949,7 @@ if (option_removeDuplicates):
                     files[j] = (-1, r'/', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
+    del signatures, tails
     initialTotal -= actuallyDeduped
     ellapsedTime = time.monotonic() - ellapsedTime
     stepConclusion(r'# duplicate_ removed', actuallyDeduped, ellapsedTime)
@@ -1281,16 +1312,7 @@ if (option_visuallyDedupImages):
                 files[j] = (0, files[j][1], files[j][2], None)
                 done += 1
                 progress(r'Visually deduplicating images...', done, initialTotal)
-        if (len(currentGroup) > 1):
-            currentGroup = sorted(currentGroup)
-            largestSize = currentGroup[-1][0]
-            largest = [image for size, image in currentGroup if (size >= largestSize)]
-            if (len(largest) == 1): largest = largest[0]
-            else: largest = max(largest, key=lambda f: os.stat(f).st_size)
-            for size, image in currentGroup:
-                if ((image != largest) and os.path.exists(image)):
-                    os.remove(image)
-                    actuallyDeduped += 1
+        actuallyDeduped += removeSmallerVisualDuplicates(currentGroup)
 
     ellapsedTime = time.monotonic() - ellapsedTime
     stepConclusion(r'# duplicate image_ removed', actuallyDeduped, ellapsedTime)
