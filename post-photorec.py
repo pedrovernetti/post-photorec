@@ -134,32 +134,39 @@ def split( l, chunkSize ):
 
 
 
-# TEXT NORMALIZATION FUNCTION
+# TEXT NORMALIZATION AND DECODING FUNCTIONS
 
 _ucats = {r'Cc', r'Cf', r'Co', r'Cs'}
 _table = dict.fromkeys(i for i in range(sys.maxunicode) if (ucategory(chr(i)) in _ucats))
 _table = { cat:r' ' for cat in _table}
-_table[ord('\n')] = r' '
-_table[ord('\r')] = r' '
-_table[ord(r'?')] = r' '
-_table[ord(r'*')] = r' '
-_table[ord('\x22')] = '\x27\x27'
-_table[ord(r'/')] = r' - '
-_table[ord('\\')] = r' - '
-_table[ord(r':')] = r' - '
-_table[ord(r'|')] = r' - '
-_table[ord(r'<')] = r'('
-_table[ord(r'>')] = r')'
+_tablex = _table
+_tablex[ord('\n')] = r' '
+_tablex[ord('\r')] = r' '
+_tablex[ord(r'?')] = r' '
+_tablex[ord(r'*')] = r' '
+_tablex[ord('\x22')] = '\x27\x27'
+_tablex[ord(r'/')] = r' - '
+_tablex[ord('\\')] = r' - '
+_tablex[ord(r':')] = r' - '
+_tablex[ord(r'|')] = r' - '
+_tablex[ord(r'<')] = r'('
+_tablex[ord(r'>')] = r')'
 
-def _normalized( stringOrStrings ):
-    if (stringOrStrings is None):
+def normalizedFilename( stringOrStrings ):
+    if (not stringOrStrings):
     	return r''
     elif (isinstance(stringOrStrings, list)):
-        return [_normalized(string) for string in stringOrStrings]
+        return [normalizedFilename(string) for string in stringOrStrings]
     elif (isinstance(stringOrStrings, dict)):
-        return dict((key, _normalized(string)) for key, string in stringOrStrings.items())
-    normalized = unormalize(r'NFC', stringOrStrings.translate(_table)).strip()
+        return dict((key, normalizedFilename(string)) for key, string in stringOrStrings.items())
+    normalized = unormalize(r'NFC', stringOrStrings.translate(_tablex)).strip()
     return re.sub(r'\s+', r' ', re.sub(r'^- ', r'', re.sub(r'( - )+', r' - ', normalized)))
+
+codecAliases = {r'cp10000':r'mac_roman', r'cp1281':r'mac_turkish', r'cp1286':r'mac_iceland'}
+
+def encodingName( knownName ):
+    enc = codecs.lookup(knownName if (knownName) else codecAliases.get(knownName, r'utf-8'))
+    return enc.name
 
 
 
@@ -198,7 +205,7 @@ def decodedFileContent( file ):
     except: return r''
     try:
         encoding = cchardet.detect(content)[r'encoding']
-        encoding = codecs.lookup(encoding if (encoding is not None) else r'utf-8').name
+        encoding = encodingName(encoding)
     except:
         encoding = r'utf-8'
     content = content.decode(encoding, r'ignore')
@@ -217,8 +224,8 @@ def javaCSharpFilename( currentName ):
             pkg = packageName.findall(content)
             name = className.findall(content)
         if (len(name) != 1): return os.path.split(currentName)[-1]
-        newFilename = _normalized(name[0][2]) + os.path.splitext(currentName)[-1]
-        if (len(pkg) == 1): newFilename = _normalized(pkg[0]) + r'.' + newFilename
+        newFilename = normalizedFilename(name[0][2]) + os.path.splitext(currentName)[-1]
+        if (len(pkg) == 1): newFilename = normalizedFilename(pkg[0]) + r'.' + newFilename
         return newFilename
     except:
         return os.path.split(currentName)[-1]
@@ -277,10 +284,10 @@ def imageFilename( currentName ):
         except:
             title = None
         if (not title): return os.path.split(currentName)[-1]
-        return _normalized(author + title + os.path.splitext(currentName)[-1])
+        return normalizedFilename(author + title + os.path.splitext(currentName)[-1])
     else:
         _unmute()
-        return _normalized(cameraModel + r' ' + date + os.path.splitext(currentName)[-1])
+        return normalizedFilename(cameraModel + r' ' + date + os.path.splitext(currentName)[-1])
 
 def songFilename( currentName, parsedInfo=None ):
     _mute()
@@ -305,7 +312,7 @@ def songFilename( currentName, parsedInfo=None ):
     else: artist = r''
     if (parsedInfo.tracks[0].album is not None): album = parsedInfo.tracks[0].album + r' - '
     else: album = r''
-    final = _normalized(artist + album + title + bitrate)
+    final = normalizedFilename(artist + album + title + bitrate)
     _unmute()
     if (len(final) <= 1): return os.path.split(currentName)[-1]
     return (final + os.path.splitext(currentName)[-1])
@@ -338,11 +345,11 @@ def videoFilename( currentName, parsedInfo=None ):
     elif (parsedInfo.tracks[0].author is not None): artist = parsedInfo.tracks[0].author + r' - '
     elif (parsedInfo.tracks[0].writer is not None): artist = parsedInfo.tracks[0].writer + r' - '
     else: artist = r''
-    final = _normalized(artist + title + res)
+    final = normalizedFilename(artist + title + res)
     _unmute()
     if ((len(artist) + len(title)) == 0):
         final = os.path.split(os.path.splitext(currentName)[0])[-1]
-        final = _normalized(re.sub((r'( ?\[([0-9]{3,4}p|[48][Kk])\])+'), r'', final) + res)
+        final = normalizedFilename(re.sub((r'( ?\[([0-9]{3,4}p|[48][Kk])\])+'), r'', final) + res)
     if (not final): return os.path.split(currentName)[-1]
     else: return (final + os.path.splitext(currentName)[-1])
 
@@ -377,7 +384,7 @@ def PDFFilename( currentName ):
         title = info.get(r'/Title', r'')
         if (isinstance(title, PDFIndirectObject)): title = document.getObject(title)
         if (not title): return os.path.split(currentName)[-1]
-        return (_normalized(author + title) + r'.pdf')
+        return (normalizedFilename(author + title) + r'.pdf')
     except:
         return os.path.split(currentName)[-1]
 
@@ -389,13 +396,13 @@ def OLEDocumentFilename( currentName ):
         encoding = documentMetadata.codepage
     except:
         return os.path.split(currentName)[-1]
-    encoding = r'cp' + str(encoding if ((encoding is not None) and (encoding > 0)) else 1252)
+    encoding = encodingName(r'cp' + str(encoding if (encoding) else 1252))
     author = r''
     if ((documentMetadata.author is not None) and (len(documentMetadata.author) > 1)):
         author = r' (' + documentMetadata.author.decode(encoding) + r')'
     if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
-        title = _normalized(documentMetadata.title.decode(encoding))
-        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
+        title = normalizedFilename(documentMetadata.title.decode(encoding))
+        return (normalizedFilename(title + author) + os.path.splitext(currentName)[-1])
     return os.path.split(currentName)[-1]
 
 def openXMLDocumentFilename( currentName ):
@@ -410,7 +417,7 @@ def openXMLDocumentFilename( currentName ):
         if ((field is not None) and (len(field.text) > 1)): title = field.text
         else: return os.path.split(currentName)[-1]
         XMLMetadataFile.close()
-        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
+        return (normalizedFilename(title + author) + os.path.splitext(currentName)[-1])
     except:
         return os.path.split(currentName)[-1]
 
@@ -431,7 +438,7 @@ def openDocumentFilename( currentName ):
         field = parsedXML.find(r'//title')
         if ((field is not None) and (len(field.text) > 1)): title = field.text
         else: return os.path.split(currentName)[-1]
-        return (_normalized(title + author) + os.path.splitext(currentName)[-1])
+        return (normalizedFilename(title + author) + os.path.splitext(currentName)[-1])
     except:
         return os.path.split(currentName)[-1]
 
@@ -446,7 +453,7 @@ def HTMLFilename( currentName ):
         if (title is None): title = xml.find(r'.//name')
     if (title is not None): title = title.text
     else: return os.path.split(currentName)[-1]
-    return (_normalized(title) + os.path.splitext(currentName)[-1])
+    return (normalizedFilename(title) + os.path.splitext(currentName)[-1])
 
 def EPUBFilename( currentName ):
     try:
@@ -464,7 +471,7 @@ def EPUBFilename( currentName ):
             author = (field.text + r' - ') if (field is not None) else r''
             field = parsedXML.find('//publisher')
             publisher = (r' (' + field.text + ')') if (field is not None) else r''
-            return (_normalized(author + title.text + publisher) + r'.epub')
+            return (normalizedFilename(author + title.text + publisher) + r'.epub')
     return os.path.split(currentName)[-1]
 
 def fontFilename( currentName ):
@@ -487,7 +494,7 @@ def fontFilename( currentName ):
         _unmute()
         return os.path.split(currentName)[-1]
     path = currentName.rsplit(os.path.sep, 1)[0]
-    name = _normalized(family + r' ' + name)
+    name = normalizedFilename(family + r' ' + name)
     _unmute()
     if (len(name) < 2): return os.path.split(currentName)[-1]
     return (name + r'.' + currentName.rsplit(r'.', 1)[-1])
@@ -509,7 +516,7 @@ def torrentFilename( currentName ):
         name = re.findall(r'4:name' + name[0] + ':(.{' + name[0] + '})', content)
         if (not name): return os.path.split(currentName)[-1]
         path = currentName.rsplit(os.path.sep, 1)[0]
-        return (_normalized(name[0]) + r'.torrent')
+        return (normalizedFilename(name[0]) + r'.torrent')
 
 windowsPlaylistTitle = re.compile(r'<title>(.*)</title>')
 def windowsPlaylistFilename( currentName ):
@@ -522,7 +529,7 @@ def windowsPlaylistFilename( currentName ):
     except:
         pass
     if (not title): return os.path.split(currentName)[-1]
-    else: return (_normalized(title) + r'.wpl')
+    else: return (normalizedFilename(title) + r'.wpl')
 
 def cueSheetFilename( currentName ):
     title = None
@@ -541,7 +548,7 @@ def cueSheetFilename( currentName ):
     except:
         pass
     if (not title): return os.path.split(currentName)[-1]
-    else: return (_normalized(title) + r'.cue')
+    else: return (normalizedFilename(title) + r'.cue')
 
 windowsRegistryFile = re.compile(r'.*\.(dat|hve|man|reg)(\.tmp)?$', re.IGNORECASE)
 def windowsRegistryFilename( currentName ):
@@ -562,7 +569,7 @@ def windowsRegistryFilename( currentName ):
             regName = regName[48:].decode(r'utf-16', r'ignore').strip('\x00?_- \n\\')
         if (len(regName) < 1): return os.path.split(currentName)[-1]
         if (not windowsRegistryFile.match(regName)): regName += r'.reg'
-        return _normalized(re.sub(r'^([A-Z]):\\', r'\1_', regName).replace('\\', r'_'))
+        return normalizedFilename(re.sub(r'^([A-Z]):\\', r'\1_', regName).replace('\\', r'_'))
     except:
         return os.path.split(currentName)[-1]
 
@@ -1055,7 +1062,7 @@ for i in range(len(files)):
                         pass
                 gpd_pcfName = gpd_pcfNameLine.findall(content)
                 if (len(gpd_pcfName) == 1):
-                    newFilename = _normalized(gpd_pcfName[0][1])
+                    newFilename = normalizedFilename(gpd_pcfName[0][1])
                     newFilename = re.sub(r'(\.[GgPp][Pp][Dd])$', lambda x: x.group(0).lower(), newFilename)
                     rename(files[i], newFilename)
                     continue
@@ -1096,9 +1103,9 @@ for i in range(len(files)):
                 if (len(newFilename) < 1):
                     newFilename = desktopEntryNameLine2.findall(content)
                     if (len(newFilename) < 1): newFilename = os.path.split(files[i])[-1][:-4]
-                    else: newFilename = _normalized(re.sub(r'\s+', r'-', newFilename[0].lower()))
+                    else: newFilename = normalizedFilename(re.sub(r'\s+', r'-', newFilename[0].lower()))
                 else:
-                    newFilename = _normalized(os.path.split(newFilename[0])[-1])
+                    newFilename = normalizedFilename(os.path.split(newFilename[0])[-1])
                 rename(files[i], (newFilename + r'.desktop'), count=True)
                 done += 1
             else:
@@ -1215,7 +1222,7 @@ for i in range(len(files)):
             if (title is None): title = xml.find(r'.//name')
         if (title is not None): title = title.text
         else: continue
-        rename(files[i], (_normalized(title) + r'.html.gz'), count=True)
+        rename(files[i], (normalizedFilename(title) + r'.html.gz'), count=True)
     elif (files[i].endswith(r'.gz')):
         try:
             gz = gzip.open(files[i], r'rb')
