@@ -28,7 +28,8 @@
 import sys, os, stat, re, mmap, codecs, json, gzip, filecmp, time, warnings
 from multiprocessing import Pool, Value as SharedValue
 from unicodedata import category as ucategory, normalize as unormalize
-from zipfile import ZipFile as ZIPFile
+from zipfile import ZipFile as ZIPFile, BadZipFile as BadZipFileError
+from zlib import error as ZLibError
 
 import cchardet
 from lxml import html, etree, objectify
@@ -210,6 +211,26 @@ def decodedFileContent( file ):
         encoding = r'utf-8'
     content = content.decode(encoding, r'ignore')
     return content.strip()
+
+
+
+# JUNK DETECTION FUNCTIONS
+
+def isBadGZ( gzFilePath ):
+    try:
+        with gzip.open(gzFilePath) as gz:
+            while gz.read(262144): pass
+    except (IOError, EOFError, ZLibError):
+        return True
+    except:
+        return False
+    return False
+
+def isBadZIP( zipFilePath ):
+    try: z = ZIPFile(zipFilePath)
+    except (BadZipFileError): return True
+    except: return False
+    return False
 
 
 
@@ -729,15 +750,33 @@ def createSubdirs( rootDirPath, subdirs ):
 
 
 
-# RENAMING LOOP FUNCTION
+# FILES PROCESSING LOOP FUNCTIONS
+
+def junkRemovalLoop( files, target, junkDetectionFunction ):
+    global done
+    buffer = []
+    if (isinstance(target, str)):
+        def isTarget( filePath ): return filePath.endswith(target)
+    elif (isinstance(target, re.Pattern)):
+        def isTarget( filePath ): return target.match(filePath)
+    else:
+        return
+    for i in range(len(files)):
+        if (isTarget(files[i]) and junkDetectionFunction(files[i])):
+            done += 1
+            progress(r'Analyzing files...', done, initialTotal)
+            removeJunkFile(files[i])
+        else:
+            buffer.append(files[i])
+    return buffer
 
 def renamingLoop( files, target, filenameFunction ):
     global done
     buffer = []
     if (isinstance(target, str)):
-        def isTarget( filePath ): return files[i].endswith(target)
+        def isTarget( filePath ): return filePath.endswith(target)
     elif (isinstance(target, re.Pattern)):
-        def isTarget( filePath ): return target.match(files[i])
+        def isTarget( filePath ): return target.match(filePath)
     else:
         return
     for i in range(len(files)):
@@ -770,7 +809,7 @@ documentFile = re.compile(documentFile + r'e(nc|pub)|[a-z]?html?(\.gz)?|m(obi|d)
 audioFile = r'^.*\.(m(4[abp]|ka|p[+c123]|idi?)|w(ma|a?v)|flac|a(ac|c3|pe|u)|dts|oga|tta|gsm|'
 audioFile = re.compile(audioFile + r'ra|ofr|s(px|nd))$')
 
-photorecName = re.compile(r'^(.*/)?f[0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
+photorecName = re.compile(r'^(.*/)?[ft][0-9]{5,}(_[^/]*)?(\.[a-zA-Z0-9]+)?$')
 
 
 
@@ -782,7 +821,7 @@ warnings.simplefilter(r'ignore')
 
 # PROCESSING COMMAND LINE ARGUMENTS
 
-if (r'-h' in sys.argv): helpMessage()
+if ((r'-h' in sys.argv) or (r'--help' in sys.argv)): helpMessage()
 
 option_runningWithSudo = not os.getuid()
 
@@ -977,13 +1016,6 @@ done = 0
 # REMOVING JUNK FILES
 
 if (option_removeKnownJunk):
-    for file in files:
-        if (file.endswith(r'.pyc')):
-            os.remove(file)
-            done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-    files = [file for file in files if (not file.endswith(r'pyc'))]
-
     files = removeFilesContaining(files, r'.xml', b'<!-- Created automatically by update-mime-database')
     done = initialTotal - len(files)
     progress(r'Analyzing files...', done, initialTotal)
@@ -998,6 +1030,9 @@ if (option_removeKnownJunk):
     progress(r'Analyzing files...', done, initialTotal)
 
     removedJunkFiles += done
+
+    files = junkRemovalLoop(files, r'.gz', isBadGZ)
+    files = junkRemovalLoop(files, r'.zip', isBadZIP)
 
 
 
@@ -1146,13 +1181,37 @@ files = buffer
 
 
 
+# NAMING ARCHIVES AND COMPRESSED FILES
+
+buffer = []
+for i in range(len(files)):
+    if (files[i].endswith(r'.html.gz')):
+        done += 1
+        progress(r'Analyzing files...', done, initialTotal)
+        try: xml = html.fromstring(gzip.open(files[i], r'rb').read())
+        except: continue
+        title = xml.find(r'.//title')
+        if (title is None):
+            title = xml.find(r'.//meta[@name="title"]')
+            if (title is None): title = xml.find(r'.//meta[@property="og:title"]')
+            if (title is None): title = xml.find(r'.//meta[@name="parsely-title"]')
+            if (title is None): title = xml.find(r'.//name')
+        if (title is not None): title = title.text
+        else: continue
+        rename(files[i], (normalizedFilename(title) + r'.html.gz'), count=True)
+    else:
+        buffer.append(files[i])
+files = buffer
+
+
+
 # SMARTLY RENAMING FILES
 
 if (not option_skipRenaming):
     # Improving Some Filenames Photorec Sometimes Provides
-    prenamedFile1 = r'^f[0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
+    prenamedFile1 = r'^[ft][0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
     prenamedFile1 = re.compile(prenamedFile1 + r'd2s|ocx)$', re.IGNORECASE)
-    prenamedFile2 = r'^f[0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
+    prenamedFile2 = r'^[ft][0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
     prenamedFile2 = re.compile(prenamedFile2 + r'pp[st])$', re.IGNORECASE)
     def fixedPhotoRecName1( match ):
         return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
@@ -1202,36 +1261,6 @@ if (not option_skipRenaming):
     files = renamingLoop(files, r'.cue', cueSheetFilename)
 
     files = renamingLoop(files, r'.reg', windowsRegistryFilename)
-
-
-
-# NAMING ARCHIVES AND COMPRESSED FILES
-
-buffer = []
-for i in range(len(files)):
-    if (files[i].endswith(r'.html.gz')):
-        done += 1
-        progress(r'Analyzing files...', done, initialTotal)
-        try: xml = html.fromstring(gzip.open(files[i], r'rb').read())
-        except: continue
-        title = xml.find(r'.//title')
-        if (title is None):
-            title = xml.find(r'.//meta[@name="title"]')
-            if (title is None): title = xml.find(r'.//meta[@property="og:title"]')
-            if (title is None): title = xml.find(r'.//meta[@name="parsely-title"]')
-            if (title is None): title = xml.find(r'.//name')
-        if (title is not None): title = title.text
-        else: continue
-        rename(files[i], (normalizedFilename(title) + r'.html.gz'), count=True)
-    elif (files[i].endswith(r'.gz')):
-        try:
-            gz = gzip.open(files[i], r'rb')
-        except:
-            removeJunkFile(files[i])
-            print (files[i] + " :: dead .gz") #TODO: test corrupted archives
-    else:
-        buffer.append(files[i])
-files = buffer
 
 
 
