@@ -63,7 +63,8 @@ Example: """ + command + """ -r log,xml,pyc -n -I /path/to/recovered_files_dir
   -d        Ignore file extension when deduplicating files
   -I        Remove duplicate images (visual duplicates) (largest ones kept)
   -J        Do not remove junk files (well known to be usually unwanted)
-  -k        Keep directory structure (do not move files)
+  -K        Keep directory structure (move no files, remove no directories)
+  -k        Keep files where they are, but remove empty directories
   -N        Do not rename any file
   -n        Only rename/remove files with photorec-generated names
   -Q        No real-time progress information
@@ -163,11 +164,71 @@ def normalizedFilename( stringOrStrings ):
     normalized = unormalize(r'NFC', stringOrStrings.translate(_tablex)).strip()
     return re.sub(r'\s+', r' ', re.sub(r'^- ', r'', re.sub(r'( - )+', r' - ', normalized)))
 
-codecAliases = {r'cp10000':r'mac_roman', r'cp1281':r'mac_turkish', r'cp1286':r'mac_iceland'}
+_codecAliases = {r'cp10000':r'mac_roman', r'cp1281':r'mac_turkish', r'cp1286':r'mac_iceland'}
 
 def encodingName( knownName ):
-    enc = codecs.lookup(knownName if (knownName) else codecAliases.get(knownName, r'utf-8'))
+    enc = codecs.lookup(knownName if (knownName) else _codecAliases.get(knownName, r'utf-8'))
     return enc.name
+
+
+
+# SPECIAL FILE MANIPULATION FUNCTIONS
+
+def fileSize( filePath ):
+    try: size = os.stat(filePath).st_size
+    except: size = 0
+    return size
+
+removedJunkFiles = 0
+def removeJunkFile( filePath ):
+    try: os.remove(filePath)
+    except FileNotFoundError: pass
+    global removedJunkFiles
+    removedJunkFiles += 1
+
+def renameNotReplacing( file, newFilename ):
+    if (file == newFilename): return file
+    try:
+        if (not os.path.exists(newFilename)):
+            os.rename(file, newFilename)
+            return newFilename
+        else:
+            i = 2
+            name, ext = os.path.splitext(newFilename)
+            while True:
+                newFilename = name + r' (' + str(i) + r')' + ext
+                if (not os.path.exists(newFilename)):
+                    os.rename(file, newFilename)
+                    return newFilename
+                else:
+                    i += 1
+    except:
+        return file
+
+def moveNotReplacing( file, toWhere ):
+    newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
+    return renameNotReplacing(file, newFilename)
+
+renamedFiles = 0
+def rename( filePath, newName, count=False ):
+    if (len(newName) > 255):
+        extension = os.path.splitext(newName)[-1]
+        newName = newName[:(255 - len(extension))] + extension
+    newName = os.path.join(os.path.split(filePath)[0], newName)
+    try: newPath = renameNotReplacing(filePath, newName)
+    except: return
+    global renamedFiles
+    if (count): renamedFiles += int(filePath != newPath)
+
+def createSubdirs( rootDirPath, subdirs ):
+    subdirPaths = [rootDirPath] * len(subdirs)
+    for i in range(len(subdirs)):
+        subdirPath = os.path.join(rootDirPath, subdirs[i])
+        try: os.mkdir(subdirPath)
+        except FileExistsError: pass
+        except: continue
+        subdirPaths[i] = subdirPath
+    return tuple(subdirPaths)
 
 
 
@@ -686,67 +747,12 @@ def removeSmallerVisualDuplicates( duplicatesGroup ):
         largestSize = duplicatesGroup[-1][0]
         largest = [image for size, image in duplicatesGroup if (size >= largestSize)]
         if (len(largest) == 1): largest = largest[0]
-        else: largest = max(largest, key=lambda f: os.stat(f).st_size)
+        else: largest = max(largest, key=lambda f: fileSize(f))
         for size, image in duplicatesGroup:
             if ((image != largest) and os.path.exists(image)):
                 os.remove(image)
                 deduped += 1
     return deduped
-
-
-
-# SPECIAL FILE MANIPULATION FUNCTIONS
-
-removedJunkFiles = 0
-def removeJunkFile( filePath ):
-    try: os.remove(filePath)
-    except FileNotFoundError: pass
-    global removedJunkFiles
-    removedJunkFiles += 1
-
-def renameNotReplacing( file, newFilename ):
-    if (file == newFilename): return file
-    try:
-        if (not os.path.exists(newFilename)):
-            os.rename(file, newFilename)
-            return newFilename
-        else:
-            i = 2
-            name, ext = os.path.splitext(newFilename)
-            while True:
-                newFilename = name + r' (' + str(i) + r')' + ext
-                if (not os.path.exists(newFilename)):
-                    os.rename(file, newFilename)
-                    return newFilename
-                else:
-                    i += 1
-    except:
-        return file
-
-def moveNotReplacing( file, toWhere ):
-    newFilename = os.path.join(toWhere, os.path.split(file)[-1].strip())
-    return renameNotReplacing(file, newFilename)
-
-renamedFiles = 0
-def rename( filePath, newName, count=False ):
-    if (len(newName) > 255):
-        extension = os.path.splitext(newName)[-1]
-        newName = newName[:(255 - len(extension))] + extension
-    newName = os.path.join(os.path.split(filePath)[0], newName)
-    try: newPath = renameNotReplacing(filePath, newName)
-    except: return
-    global renamedFiles
-    if (count): renamedFiles += int(filePath != newPath)
-
-def createSubdirs( rootDirPath, subdirs ):
-    subdirPaths = [rootDirPath] * len(subdirs)
-    for i in range(len(subdirs)):
-        subdirPath = os.path.join(rootDirPath, subdirs[i])
-        try: os.mkdir(subdirPath)
-        except FileExistsError: pass
-        except: continue
-        subdirPaths[i] = subdirPath
-    return tuple(subdirPaths)
 
 
 
@@ -907,7 +913,8 @@ if (not option_removeKnownJunk):
 option_removeDuplicates = r'-D' not in sys.argv
 option_dedupAcrossExtensions = r'-d' in sys.argv
 option_visuallyDedupImages = r'-I' in sys.argv
-option_keepDirStructure = r'-k' in sys.argv
+option_keepDirStructure = (r'-k' in sys.argv) or (r'-K' in sys.argv)
+option_wipeEmptyDirs = r'-K' not in sys.argv
 option_skipRenaming = r'-N' in sys.argv
 option_photorecNamesOnly = r'-n' in sys.argv
 option_keepEmptyFiles = r'-z' in sys.argv
@@ -922,9 +929,9 @@ files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
 if (option_dedupAcrossExtensions):
-    files = [(os.stat(file).st_size, None, file) for file in files]
+    files = [(fileSize(file), None, file) for file in files]
 else:
-    files = [(os.stat(file).st_size, os.path.splitext(file)[-1], file) for file in files]
+    files = [(fileSize(file), os.path.splitext(file)[-1], file) for file in files]
 initialTotal = len(files)
 if (option_photorecNamesOnly):
     files = [(size, ext, file) for size, ext, file in files if photorecName.match(file)]
@@ -1209,10 +1216,11 @@ files = buffer
 
 if (not option_skipRenaming):
     # Improving Some Filenames Photorec Sometimes Provides
-    prenamedFile1 = r'^[ft][0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys)(_mui)?|'
+    prenamedFile1 = r'^[ft][0-9]{5,}_([^_].*)[._](([dr]ll|exe|sys|cpl)(_mui)?|'
     prenamedFile1 = re.compile(prenamedFile1 + r'd2s|ocx)$', re.IGNORECASE)
     prenamedFile2 = r'^[ft][0-9]{5,}_([^_].*)[._](zip|pdf|doc|xls|'
     prenamedFile2 = re.compile(prenamedFile2 + r'pp[st])$', re.IGNORECASE)
+    prenamedFileGeneric = re.compile(r'^[ft][0-9]{5,}_([^_].*)$')
     def fixedPhotoRecName1( match ):
         return (match.group(1) + r'.' + match.group(2).lower().replace(r'_', r'.'))
     def fixedPhotoRecName2( match ):
@@ -1229,9 +1237,11 @@ if (not option_skipRenaming):
             done += 1
             progress(r'Analyzing files...', done, initialTotal)
             rename(files[i], prenamedFile2.sub(fixedPhotoRecName2, filename), count=True)
+        elif (filename.endswith(r'.pf')):
+            rename(files[i], prenamedFileGeneric.sub(r'\1', filename), count=True)
         else:
             buffer.append(files[i])
-    unsupported = re.compile(r'^.*\.(d2s|(sys|exe|dll|ocx)(\.mui)?)$')
+    unsupported = re.compile(r'^.*\.(d2s|(sys|exe|[dr]ll|ocx|cpl)(\.mui)?)$')
     files = [file for file in buffer if (not unsupported.match(file))]
     done = initialTotal - len(files)
     progress(r'Analyzing files...', done, initialTotal)
@@ -1416,7 +1426,7 @@ if (not option_keepDirStructure):
         if (len(files) <= maxFilesPerDir):
             ignored += len(files)
             continue
-        files = split(sorted(files, key=lambda x: os.stat(x).st_size), maxFilesPerDir)
+        files = split(sorted(files, key=lambda x: fileSize(x)), maxFilesPerDir)
         i = 0
         for chunk in files:
             i += 1
@@ -1441,11 +1451,12 @@ if (not option_keepDirStructure):
 
 # REMOVING EMPTY SUBDIRECTORIES LEFT BEHIND
 
-for path, subdirs, items in os.walk(targetRootDir, topdown=False):
-    relativeTo = os.path.join(targetRootDir, path)
-    for subdir in subdirs:
-        try: os.removedirs(os.path.join(relativeTo, subdir))
-        except: pass
+if (option_wipeEmptyDirs):
+    for path, subdirs, items in os.walk(targetRootDir, topdown=False):
+        relativeTo = os.path.join(targetRootDir, path)
+        for subdir in subdirs:
+            try: os.removedirs(os.path.join(relativeTo, subdir))
+            except: pass
 
 
 
