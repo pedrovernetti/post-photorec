@@ -70,6 +70,7 @@ Example: """ + command + """ -r log,xml,pyc -n -I /path/to/recovered_files_dir
   -Q        No real-time progress information
   -q        Quiet mode (no verbosity)
   -r EXTS   Remove files with any of the given (comma-separated) extension(s)
+  -T        Remove duplicate txts (textual duplicates)
   -x [DEV]  Run PhotoRec on DEV (device or image path) before anything else
   -z        Do not remove empty (0B) files
 
@@ -153,6 +154,16 @@ _tablex[ord(r':')] = r' - '
 _tablex[ord(r'|')] = r' - '
 _tablex[ord(r'<')] = r'('
 _tablex[ord(r'>')] = r')'
+
+def normalizedText( stringOrStrings ):
+    if (not stringOrStrings):
+    	return r''
+    elif (isinstance(stringOrStrings, list)):
+        return [normalizedText(string) for string in stringOrStrings]
+    elif (isinstance(stringOrStrings, dict)):
+        return dict((key, normalizedText(string)) for key, string in stringOrStrings.items())
+    normalized = unormalize(r'NFC', stringOrStrings.translate(_table)).strip()
+    return re.sub(r'\s+', r' ', normalized)
 
 def normalizedFilename( stringOrStrings ):
     if (not stringOrStrings):
@@ -932,6 +943,7 @@ option_keepDirStructure = (r'-k' in sys.argv) or (r'-K' in sys.argv)
 option_wipeEmptyDirs = r'-K' not in sys.argv
 option_skipRenaming = r'-N' in sys.argv
 option_photorecNamesOnly = r'-n' in sys.argv
+option_DeepDedupTxts = r'-T' in sys.argv
 option_keepEmptyFiles = r'-z' in sys.argv
 option_skipAnalysis = option_skipRenaming and (not option_removeKnownJunk)
 
@@ -1306,6 +1318,55 @@ if (len(junkExtensions) > 0):
                 removeJunkFile(os.path.join(path, name))
     ellapsedTime = time.monotonic() - ellapsedTime
     stepConclusion(r'# file_ removed by extension', done, ellapsedTime)
+
+
+
+# DEDUPLICATING PLAIN TEXTS BASED ON CONTENT (IF SPECIFIED)
+
+if (option_DeepDedupTxts):
+    print(r'Deduplicating plain texts...', end=r'', flush=True)
+    ellapsedTime = time.monotonic()
+    done = 0
+    actuallyDeduped = 0
+    files = []
+    for path, subdirs, items in os.walk(targetRootDir):
+        files += [os.path.join(path, name) for name in items if name.endswith(r'.txt')]
+    initialTotal = len(files)
+    i = SharedValue(r'i', 0)
+    whitespace = re.compile(r'\s+', re.MULTILINE)
+    def preprocessedTextWithProgress( imageFile ):
+        with i.get_lock(): i.value += 1
+        progress(r'Preanalysing found plain texts...', i.value, initialTotal)
+        try:
+            with open(imageFile, r'rb') as f:
+                content = unormalize(r'NFC', decodedFileContent(f).translate(_table))
+                return whitespace.sub(r'', content.casefold())
+        except:
+            return r''
+    with Pool(len(os.sched_getaffinity(0))) as p:
+        contents = p.map(preprocessedTextWithProgress, files)
+    for i in range(len(files)): files[i] = (len(contents[i]), files[i])
+    files = sorted(files, reverse=True)
+    for i in range(len(files)):
+        if ((not files[i][-1]) or (not files[i][0]) or (not contents[i])): continue
+        done += 1
+        progress(r'Deduplicating plain texts...', done, initialTotal)
+        for j in range((i + 1), len(files)):
+            if ((not files[j][-1]) or (not files[j][0]) or (not contents[j])): continue
+            if (files[i][0] != files[j][0]): break
+            if (contents[i][0] != contents[j][0]): continue
+            if (contents[i][-1] != contents[j][-1]): continue
+            if (contents[i] == contents[j]):
+                try:
+                    os.remove(files[j][-1])
+                    files[j] = (0, None)
+                    done += 1
+                    actuallyDeduped += 1
+                    progress(r'Deduplicating plain texts...', done, initialTotal)
+                except:
+                    pass
+    ellapsedTime = time.monotonic() - ellapsedTime
+    stepConclusion(r'# duplicate plain text_ removed', actuallyDeduped, ellapsedTime)
 
 
 
