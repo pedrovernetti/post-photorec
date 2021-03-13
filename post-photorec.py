@@ -54,7 +54,7 @@ For a given directory containing unsorted and meaninglessly-named files, removes
 the empty ones, deduplicates them, renames them more meaningfully, fixes
 some file extensions and organizes everything in a better directory structure.
 
-Example: """ + command + """ -r log,xml,pyc -n -I /path/to/recovered_files_dir
+Example: """ + command + """ -r log,xml,pyc -m 300 -n -I /path/to/recup_dir
 
  Options:
 
@@ -65,6 +65,7 @@ Example: """ + command + """ -r log,xml,pyc -n -I /path/to/recovered_files_dir
   -J        Do not remove junk files (well known to be usually unwanted)
   -K        Keep directory structure (move no files, remove no directories)
   -k        Keep files where they are, but remove empty directories
+  -m NUM    Set maximum files per directory to NUM (default = 250)
   -N        Do not rename any file
   -n        Only rename/remove files with photorec-generated names
   -Q        No real-time progress information
@@ -178,8 +179,11 @@ def normalizedFilename( stringOrStrings ):
 _codecAliases = {r'cp10000':r'mac_roman', r'cp1281':r'mac_turkish', r'cp1286':r'mac_iceland'}
 
 def encodingName( knownName ):
-    enc = codecs.lookup(knownName if (knownName) else _codecAliases.get(knownName, r'utf-8'))
-    return enc.name
+    try:
+        enc = codecs.lookup(_codecAliases.get(knownName, knownName))
+        return enc.name
+    except LookupError:
+        return r'cp1252'
 
 
 
@@ -231,6 +235,14 @@ def rename( filePath, newName, count=False ):
     global renamedFiles
     if (count): renamedFiles += int(filePath != newPath)
 
+extensionsChanged = 0
+def changeExtension( filePath, currentExtensionLength, newExtension, count=False ):
+    newPath = os.path.split(files[i])[-1][:-currentExtensionLength] + newExtension
+    rename(filePath, newPath)
+    global extensionsChanged
+    if (count): extensionsChanged += int(filePath != newPath)
+    return newPath
+
 def createSubdirs( rootDirPath, subdirs ):
     subdirPaths = [rootDirPath] * len(subdirs)
     for i in range(len(subdirs)):
@@ -245,7 +257,7 @@ def createSubdirs( rootDirPath, subdirs ):
 
 # XML PARSING FUNCTION
 
-def _parsedXML( file ):
+def parsedXML( file ):
     try: parsedXML = etree.parse(file, etree.XMLParser(remove_blank_text=True, remove_comments=True))
     except: return None
     for element in parsedXML.getroot().getiterator():
@@ -338,7 +350,6 @@ def nonEXIFImageFilename( currentPath, imageInfo ):
     return os.path.split(currentPath)[-1]
 
 def imageFilename( currentPath ):
-    _mute()
     try: image = Image.open(currentPath, r'r')
     except: return os.path.split(currentPath)[-1]
     try: EXIF = image._getexif()
@@ -348,12 +359,10 @@ def imageFilename( currentPath ):
             image.load()
             EXIF = image.info.get(r'exif', None) #TODO: must parse it into a dict()
         except:
-            _unmute()
             return os.path.split(currentPath)[-1]
         if (not EXIF):
             newFilename = nonEXIFImageFilename(currentPath, image.info)
             image.close()
-            _unmute()
             return newFilename
         else:
             image.close()
@@ -386,7 +395,6 @@ def imageFilename( currentPath ):
         if (not title): return os.path.split(currentPath)[-1]
         return normalizedFilename(author + title + os.path.splitext(currentPath)[-1])
     else:
-        _unmute()
         return normalizedFilename(cameraModel + r' ' + date + os.path.splitext(currentPath)[-1])
 
 def songFilename( currentPath, parsedInfo=None ):
@@ -509,7 +517,7 @@ def openXMLDocumentFilename( currentPath ):
     try:
         document = ZIPFile(currentPath, r'r')
         XMLMetadataFile = document.open(r'docProps/core.xml')
-        parsedXML = _parsedXML(XMLMetadataFile)
+        parsedXML = parsedXML(XMLMetadataFile)
         if (parsedXML is None): return os.path.split(currentPath)[-1]
         field = parsedXML.find('//creator')
         author = (r' (' + field.text + r')') if (field is not None) else r''
@@ -526,11 +534,11 @@ def openDocumentFilename( currentPath ):
         with open(currentPath, r'rb') as document:
             fileSignature = document.read(2)
             document.seek(0)
-            if (fileSignature == b'<?'): parsedXML = _parsedXML(document)
+            if (fileSignature == b'<?'): parsedXML = parsedXML(document)
             else: fileSignature = None
         if (fileSignature is None):
             XMLMetadataFile = ZIPFile(currentPath, r'r').open(r'meta.xml')
-            parsedXML = _parsedXML(XMLMetadataFile)
+            parsedXML = parsedXML(XMLMetadataFile)
         if (parsedXML is None): return os.path.split(currentPath)[-1]
         field = parsedXML.find(r'//initial-creator')
         if (field is None): field = parsedXML.find(r'//creator')
@@ -566,17 +574,17 @@ def EPUBFilename( currentPath ):
         content = ZIPFile(currentPath, r'r')
         for component in sorted(content.namelist(), key=len):
             if (component.endswith(r'.opf')):
-                parsedXML = _parsedXML(content.open(component))
+                parsedXML = parsedXML(content.open(component))
                 break
     except:
         parsedXML = None
     if (parsedXML is not None):
         title = parsedXML.find('//title')
-        if ((title is not None) and (len(title.text))):
+        if ((title is not None) and len(title.text)):
             field = parsedXML.find('//creator')
-            author = (field.text + r' - ') if (field is not None) else r''
+            author = r'' if ((field is None) or (not field.text)) else (field.text + r' - ')
             field = parsedXML.find('//publisher')
-            publisher = (r' (' + field.text + ')') if (field is not None) else r''
+            publisher = r'' if ((field is None) or (not field.text)) else (r' (' + field.text + ')')
             return (normalizedFilename(author + title.text + publisher) + r'.epub')
     return os.path.split(currentPath)[-1]
 
@@ -656,6 +664,25 @@ def cueSheetFilename( currentPath ):
     if (not title): return os.path.split(currentPath)[-1]
     else: return (normalizedFilename(title) + r'.cue')
 
+desktopEntryNameLine1 = re.compile(r'\nExec=([^\n\t ]+)')
+desktopEntryNameLine2 = re.compile(r'\nName=([^\n#]*)')
+def desktopEntryFilename( currentPath ):
+    newFilename = r''
+    try:
+        with open(currentPath, r'rb') as f:
+            content = decodedFileContent(f)
+            newFilename = desktopEntryNameLine1.findall(content)
+            if (len(newFilename) < 1):
+                newFilename = desktopEntryNameLine2.findall(content)
+                if (len(newFilename)):
+                    newFilename = re.sub(r'\s+', r'-', newFilename[0].lower())
+            else:
+                newFilename = os.path.splitext(os.path.split(newFilename[0])[-1])[0]
+            if (not newFilename): return os.path.split(currentPath)[-1]
+            else: return normalizedFilename(newFilename + '.desktop')
+    except:
+        return os.path.split(currentPath)[-1]
+
 windowsRegistryFile = re.compile(r'.*\.(dat|hve|man|reg)(\.tmp)?$', re.IGNORECASE)
 def windowsRegistryFilename( currentPath ):
     try:
@@ -687,7 +714,7 @@ def averageRGB( image ):
     if (not image.mode.startswith(r'RGB')):
         image.convert(r'RGB' if (image.mode[-1] != r'A') else r'RGBA')
     data = list(image.getdata())
-    if (not isinstance(data[0], tuple)): return None
+    if (not (isinstance(data[0], tuple) and (len(data[0]) == 3))): return None
     avgR, avgG, avgB = 0, 0, 0
     for RGB in data:
         avgR += RGB[0]
@@ -860,9 +887,12 @@ option_runningWithSudo = not os.getuid()
 targetRootDir = None
 photoRecTarget = None
 commaSeparatedExtensions = re.compile(r'[a-zA-Z0-9][a-zA-Z0-9.+-]*(,[a-zA-Z0-9][a-zA-Z0-9.+-]*)*')
+number = re.compile(r'0*[1-9][0-9]*')
 junkExtensions = r''
+maxFilesPerDir = 250
 waitingPhotoRecArg = False
 waitingRBFList = False
+waitingMaxFilesPerDir = False
 for arg in sys.argv:
     if (waitingPhotoRecArg):
         waitingRBFList = False
@@ -887,10 +917,16 @@ for arg in sys.argv:
         import stat, subprocess
     elif (arg == '-r'):
         waitingRBFList = True
+    elif (arg == r'-m'):
+        waitingMaxFilesPerDir = True
     elif (waitingRBFList):
         waitingRBFList = False
         if (commaSeparatedExtensions.match(arg)): junkExtensions += arg
         else: error("Invalid file extensions list: '" + arg + "'", 2)
+    elif (waitingMaxFilesPerDir):
+        waitingMaxFilesPerDir = False
+        if (number.match(arg)): maxFilesPerDir = int(arg)
+        else: error("Invalid value: '" + arg + "'", 2)
 
 if ((not targetRootDir) or (not os.path.isdir(targetRootDir))):
     if (photoRecTarget):
@@ -957,6 +993,10 @@ files = []
 for path, subdirs, items in os.walk(targetRootDir):
     files += [os.path.join(path, name) for name in items]
     progress(r'Listing files...', len(files), 0)
+if (not len(files)):
+    _clearLine()
+    print('Empty directory', flush=True)
+    exit(0)
 if (option_dedupAcrossExtensions):
     files = [(fileSize(file), None, file) for file in files]
 else:
@@ -1107,28 +1147,22 @@ for i in range(len(files)):
         with open(files[i], r'rb') as f:
             content = decodedFileContent(f)
             lineCount = content.count('\n')
-            if ((lineCount > 6) and
-                ((len(logLine1.findall(content)) >= (lineCount - 1)) or
-                (len(logLine2.findall(content)) >= (lineCount - 1)) or
-                (len(logLine3.findall(content)) >= (lineCount - 1)))):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.log'))
-                done += 1
-            elif (content.startswith(r'<?xml')):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.xml'))
-                buffer.append(files[i][:-4] + r'.xml')
+            if (content.startswith(r'<?xml')):
+                buffer.append(changeExtension(files[i], 3, r'xml', count=True))
             elif (len(srtTime.findall(content)) > max(1, (lineCount / 8))):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.srt'))
-                buffer.append(files[i][:-4] + r'.srt')
+                buffer.append(changeExtension(files[i], 3, r'srt', count=True))
             elif ((r'<!-- Created with Inkscape (http://www.inkscape.org/) -->' in content) and
                 (r'</svg>' in content)):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.svg'))
-                buffer.append(files[i][:-4] + r'.svg')
+                buffer.append(changeExtension(files[i], 3, r'svg', count=True))
             elif (len(tclLine.findall(content)) > 0):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.tcl'))
-                buffer.append(files[i][:-4] + r'.tcl')
+                buffer.append(changeExtension(files[i], 3, r'tcl', count=True))
             else:
-                done += 1
-                if (maybeJSON.match(content)):
+                if ((lineCount > 6) and
+                    ((len(logLine1.findall(content)) >= (lineCount - 1)) or
+                    (len(logLine2.findall(content)) >= (lineCount - 1)) or
+                    (len(logLine3.findall(content)) >= (lineCount - 1)))):
+                    changeExtension(files[i], 3, r'log', count=True)
+                elif (maybeJSON.match(content)):
                     try:
                         junk = json.loads(content)
                         rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.json'))
@@ -1147,14 +1181,13 @@ for i in range(len(files)):
                       (len(set(content)) < min(12, round(len(content) / 2))) or
                       (content.startswith(r'# Autogenerated by Sphinx'))):
                     removeJunkFile(files[i])
+                done += 1
         progress(r'Analyzing files...', done, initialTotal)
     else:
         buffer.append(files[i])
 files = buffer
 
 ssaLine = re.compile(r'(^|\n)Dialogue: [0-9]+,[0-9]+:([0-5][0-9]|60):([0-5][0-9]|60)\.[0-9]{2}')
-desktopEntryNameLine1 = re.compile(r'\nExec=([^\n\t ]+)')
-desktopEntryNameLine2 = re.compile(r'\nName=([^\n#]*)')
 buffer = []
 for i in range(len(files)):
     if (files[i].endswith(r'.ini') and os.path.isfile(files[i])):
@@ -1163,28 +1196,18 @@ for i in range(len(files)):
             lineCount = content.count('\n')
             if (content.startswith(r'[Script Info]')):
                 if (len(ssaLine.findall(content)) > max(1, ((lineCount / 3) - 25))):
-                    rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.ass'))
-                    buffer.append(files[i][:-4] + r'.ass')
+                    buffer.append(changeExtension(files[i], 3, r'ass', count=True))
                 else:
                     buffer.append(files[i])
-            elif (content.startswith(r'[General]\s*\n\s*Version=DrumSynth v2\.0')):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.ds'))
-                done += 1
-            elif (content.startswith((r'[MIME Cache]', r'[.ShellClassInfo]'))):
-                removeJunkFile(files[i])
-            elif (content.startswith(r'[Device Install Log]')):
-                rename(files[i], (os.path.split(files[i])[-1][:-4] + r'.log'))
             elif (content.startswith(r'[Desktop Entry]')):
-                newFilename = desktopEntryNameLine1.findall(content)
-                if (len(newFilename) < 1):
-                    newFilename = desktopEntryNameLine2.findall(content)
-                    if (len(newFilename) < 1): newFilename = os.path.split(files[i])[-1][:-4]
-                    else: newFilename = normalizedFilename(re.sub(r'\s+', r'-', newFilename[0].lower()))
-                else:
-                    newFilename = normalizedFilename(os.path.split(newFilename[0])[-1])
-                rename(files[i], (newFilename + r'.desktop'), count=True)
-                done += 1
+                buffer.append(changeExtension(files[i], 3, r'desktop', count=True))
             else:
+                if (content.startswith(r'[General]\s*\n\s*Version=DrumSynth v2\.0')):
+                    changeExtension(files[i], 3, r'ds', count=True)
+                elif (content.startswith((r'[MIME Cache]', r'[.ShellClassInfo]'))):
+                    removeJunkFile(files[i])
+                elif (content.startswith(r'[Device Install Log]')):
+                    changeExtension(files[i], 3, r'log', count=True)
                 done += 1
         progress(r'Analyzing files...', done, initialTotal)
     else:
@@ -1282,6 +1305,7 @@ if (not option_skipRenaming):
     files = renamingLoop(files, r'.wpl', windowsPlaylistFilename)
     files = renamingLoop(files, r'.cue', cueSheetFilename)
 
+    files = renamingLoop(files, r'.desktop', desktopEntryFilename)
     files = renamingLoop(files, r'.reg', windowsRegistryFilename)
     ellapsedTimeRenaming = time.monotonic() - ellapsedTime
 
@@ -1444,8 +1468,8 @@ if (not option_keepDirStructure):
     for file in files:
         if (ambigMediaFile.match(file)): #TODO: test
             try:
-                video = len(MediaInfo.parse(file).video_tracks)
-                files[done] = moveNotReplacing(file, (audioDir if video else videosDir))
+                video = bool(len(MediaInfo.parse(file).video_tracks))
+                files[done] = moveNotReplacing(file, (videosDir if video else audioDir))
             except:
                 files[done] = moveNotReplacing(file, miscDir)
         elif (file.endswith(r'.djvu')):
@@ -1481,7 +1505,6 @@ if (not option_keepDirStructure):
     ignored = 0
     done = 0
     j = 0
-    maxFilesPerDir = 250
     for subdir in [os.path.join(targetRootDir, d) for d in os.listdir(targetRootDir)]:
         files = [os.path.join(subdir, file) for file in os.listdir(subdir)]
         files = [file for file in files if os.path.isfile(file)]
