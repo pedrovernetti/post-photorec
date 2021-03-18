@@ -81,6 +81,7 @@ Example: """ + command + """ -r log,xml,pyc -m 300 -n -I /path/to/recup_dir
 
 def error( message, whatToReturn ):
     sys.stderr.write('\x1B[31;1mError: ' + message + '\n')
+    sys.stderr.flush()
     exit(whatToReturn)
 
 def progress( message, done, total ):
@@ -194,10 +195,16 @@ def fileSize( filePath ):
     except: size = 0
     return size
 
+def removeFile( filePath ):
+    try: os.remove(filePath)
+    except FileNotFoundError: pass
+    except PermissionError: return
+
 removedJunkFiles = 0
 def removeJunkFile( filePath ):
     try: os.remove(filePath)
     except FileNotFoundError: pass
+    except PermissionError: return
     global removedJunkFiles
     removedJunkFiles += 1
 
@@ -230,8 +237,7 @@ def rename( filePath, newName, count=False ):
         extension = os.path.splitext(newName)[-1]
         newName = newName[:(255 - len(extension))] + extension
     newName = os.path.join(os.path.split(filePath)[0], newName)
-    try: newPath = renameNotReplacing(filePath, newName)
-    except: return
+    newPath = renameNotReplacing(filePath, newName)
     global renamedFiles
     if (count): renamedFiles += int(filePath != newPath)
 
@@ -507,9 +513,9 @@ def OLEDocumentFilename( currentPath ):
     encoding = encodingName(r'cp' + str(encoding if (encoding) else 1252))
     author = r''
     if ((documentMetadata.author is not None) and (len(documentMetadata.author) > 1)):
-        author = r' (' + documentMetadata.author.decode(encoding) + r')'
+        author = r' (' + documentMetadata.author.decode(encoding, r'ignore') + r')'
     if ((documentMetadata.title is not None) and (len(documentMetadata.title) > 1)):
-        title = normalizedFilename(documentMetadata.title.decode(encoding))
+        title = normalizedFilename(documentMetadata.title.decode(encoding, r'ignore'))
         return (normalizedFilename(title + author) + os.path.splitext(currentPath)[-1])
     return os.path.split(currentPath)[-1]
 
@@ -597,10 +603,10 @@ def fontFilename( currentPath ):
     try:
         for record in font[r'name'].names:
             if (b'\x00' in record.string):
-                name_str = record.string.decode(r'utf-16-be')
+                name_str = record.string.decode(r'utf-16-be', r'ignore')
             else:
                 try: name_str = record.string.decode(r'utf-8')
-                except: name_str = record.string.decode(r'latin-1')
+                except: name_str = record.string.decode(r'latin-1', r'ignore')
             if ((record.nameID == 2) and (not name)): name = name_str
             elif ((record.nameID == 1) and (not family)): family = name_str
             if (name and family): break
@@ -801,7 +807,7 @@ def removeSmallerVisualDuplicates( duplicatesGroup ):
         else: largest = max(largest, key=lambda f: fileSize(f))
         for size, image in duplicatesGroup:
             if ((image != largest) and os.path.exists(image)):
-                os.remove(image)
+                removeFile(image)
                 deduped += 1
     return deduped
 
@@ -990,18 +996,26 @@ option_skipAnalysis = option_skipRenaming and (not option_removeKnownJunk)
 print(r'Listing files...', end=r'', flush=True)
 ellapsedTime = time.monotonic()
 files = []
-for path, subdirs, items in os.walk(targetRootDir):
-    files += [os.path.join(path, name) for name in items]
-    progress(r'Listing files...', len(files), 0)
-if (not len(files)):
+try:
+    for path, subdirs, items in os.walk(targetRootDir):
+        files += [os.path.join(path, name) for name in items]
+        progress(r'Listing files...', len(files), 0)
+except PermissionError as e:
+    error(("\rCannot access '" + e.filename + "' (try running as root)"), 1)
+initialTotal = len(files)
+if (not initialTotal):
     _clearLine()
     print('Empty directory', flush=True)
     exit(0)
+if (not option_runningWithSudo):
+    for i in range(initialTotal):
+        progress('Checking files\x27 permissions...', i, initialTotal)
+        if (not os.access(files[i], os.R_OK)):
+            error(("\rCannot access '" + files[i] + "' (try running as root)"), 1)
 if (option_dedupAcrossExtensions):
     files = [(fileSize(file), None, file) for file in files]
 else:
     files = [(fileSize(file), os.path.splitext(file)[-1], file) for file in files]
-initialTotal = len(files)
 if (option_photorecNamesOnly):
     files = [(size, ext, file) for size, ext, file in files if photorecName.match(file)]
 files = sorted(files)
@@ -1022,7 +1036,7 @@ if (not option_keepEmptyFiles):
             j += 1
         for i in range(0, j):
             progress(r'Removing empty files...', (j - (j - i)), j)
-            try: os.remove(files[i][2])
+            try: removeFile(files[i][2])
             except FileNotFoundError: pass
         files = files[j:]
         initialTotal -= j
@@ -1067,7 +1081,7 @@ if (option_removeDuplicates):
                 if (filecmp.cmp(files[i][2], files[j][2], shallow=False)):
                     actuallyDeduped += 1
                     progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
-                    os.remove(files[j][2])
+                    removeFile(files[j][2])
                     files[j] = (-1, r'/', files[j][2])
         done += 1
         progress(r'Deduplicating files...', (actuallyDeduped + done), initialTotal)
@@ -1382,7 +1396,7 @@ if (option_DeepDedupTxts):
             if (contents[i][-1] != contents[j][-1]): continue
             if (contents[i] == contents[j]):
                 try:
-                    os.remove(files[j][-1])
+                    removeFile(files[j][-1])
                     files[j] = (0, None)
                     done += 1
                     actuallyDeduped += 1
@@ -1466,7 +1480,7 @@ if (not option_keepDirStructure):
         [r'Audio',  r'Documents',  r'Fonts', r'Pictures',
          r'Videos', r'Plain Text', r'Code',  r'Misc'])
     for file in files:
-        if (ambigMediaFile.match(file)): #TODO: test
+        if (ambigMediaFile.match(file)):
             try:
                 video = bool(len(MediaInfo.parse(file).video_tracks))
                 files[done] = moveNotReplacing(file, (videosDir if video else audioDir))
